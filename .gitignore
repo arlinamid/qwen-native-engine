@@ -6,3 +6,6 @@
 /web/kpkg
 .claude/settings.local.json
 /results/reference_*.json
+/.qwen-agent
+/knowledge/*
+!/knowledge/_README.txt

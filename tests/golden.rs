@@ -67,7 +67,7 @@ fn grammar_forces_valid_calls_from_random_logits() {
 
     for seed in 1..=60u64 {
         let mut constraint = grammar.constraint(&tools).unwrap();
-        let mut sampler = Sampler::new(SamplingOptions { temperature: 1.0, top_k: 8, top_p: 1.0, seed });
+        let mut sampler = Sampler::new(SamplingOptions { temperature: 1.0, top_k: 8, top_p: 1.0, seed, ..Default::default() });
         // Favouring the low token ids (punctuation, bytes) makes random strings close soon enough.
         let logits: Vec<f32> = (0..VOCAB).map(|i| if i < 512 { 2.0 } else { 0.0 }).collect();
         let mut out = Vec::new();

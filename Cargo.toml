@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "kernels"]
+members = [".", "kernels", "agent"]
 
 [package]
 name = "qwen-wasm"

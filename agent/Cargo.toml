@@ -1,0 +1,21 @@
+[package]
+name = "qwen-agent"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Command-line agent on the native Qwen3.5-0.8B engine, with tools from MCP servers"
+
+[[bin]]
+name = "qwen-agent"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+llguidance = { version = "1", default-features = false, features = ["lark", "ahash"] }
+pollster = "0.4"
+qwen-kernels = { path = "../kernels" }
+qwen-wasm = { path = ".." }
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokenizers = { version = "0.21", default-features = false, features = ["unstable_wasm", "fancy-regex"] }

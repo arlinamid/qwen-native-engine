@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "knowledge": {
+      "command": "python",
+      "args": ["-I", "mcp_servers/knowledge.py", "--lang", "hu", "--notes", "knowledge"]
+    },
+    "utils": {
+      "command": "python",
+      "args": ["-I", "examples/mcp_demo_server.py"],
+      "tools": ["get_time", "calculate"]
+    }
+  }
+}

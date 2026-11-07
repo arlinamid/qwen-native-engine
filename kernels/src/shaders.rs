@@ -9,8 +9,8 @@ pub const HIDDEN: u32 = 1024;
 const PAIR_FN: &str = "fn pair(w: u32) -> vec2<f16> { return bitcast<vec2<f16>>(w); }";
 #[cfg(not(target_arch = "wasm32"))]
 const PAIR_FN: &str = "fn pair(w: u32) -> vec2<f16> { return vec2<f16>(unpack2x16float(w)); }";
-/// Upper bound of the attention context held in workgroup memory (8 kB of scores).
-pub const MAX_CONTEXT: u32 = 2048;
+/// Upper bound of the attention context held in workgroup memory (16 kB of scores).
+pub const MAX_CONTEXT: u32 = 4096;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Epilogue {

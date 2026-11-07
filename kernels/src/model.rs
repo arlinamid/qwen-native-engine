@@ -76,8 +76,11 @@ pub struct Model {
     tok: wgpu::Buffer,
     logits: wgpu::Buffer,
     staging: wgpu::Buffer,
+    logits_staging: wgpu::Buffer,
     /// Recurrent and attention state, cleared between prompts.
     state: Vec<wgpu::Buffer>,
+    /// Copies of `state` taken by `snapshot`, created on first use.
+    saved: std::sync::OnceLock<Vec<wgpu::Buffer>>,
     pub adapter: String,
 }
 
@@ -182,7 +185,29 @@ impl Model {
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Ok(Self { gpu, token, prefill, tail, h, hb, ids, chunk, tok, logits, staging, state, adapter: format!("{adapter} via {backend}") })
+        let logits_staging = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(VOCAB) * 4,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        Ok(Self {
+            gpu,
+            token,
+            prefill,
+            tail,
+            h,
+            hb,
+            ids,
+            chunk,
+            tok,
+            logits,
+            staging,
+            logits_staging,
+            state,
+            saved: std::sync::OnceLock::new(),
+            adapter: format!("{adapter} via {backend}"),
+        })
     }
 
     pub fn dispatches_per_token(&self) -> usize {
@@ -216,20 +241,25 @@ impl Model {
     /// Runs the prompt `BATCH` tokens per pass, then the LM head on the last token only. Leaves
     /// the same state as `prefill`.
     pub async fn prefill_batched(&self, ids: &[u32]) -> Result<()> {
-        if ids.is_empty() || ids.len() as u32 >= MAX_CONTEXT {
-            return Err(anyhow!("prompt length must be 1..{MAX_CONTEXT}"));
+        self.prefill_from(ids, 0).await
+    }
+
+    /// Like `prefill_batched`, for tokens that continue the current state at position `start`.
+    pub async fn prefill_from(&self, ids: &[u32], start: u32) -> Result<()> {
+        if ids.is_empty() || u64::from(start) + ids.len() as u64 >= u64::from(MAX_CONTEXT) {
+            return Err(anyhow!("context limit: {} + {} tokens does not fit in {MAX_CONTEXT}", start, ids.len()));
         }
         let mut last_len = 0;
         for (i, part) in ids.chunks(BATCH as usize).enumerate() {
             self.gpu.queue.write_buffer(&self.ids, 0, crate::as_bytes(part));
-            self.gpu.queue.write_buffer(&self.chunk, 0, crate::as_bytes(&[i as u32 * BATCH, part.len() as u32, 0, 0]));
+            self.gpu.queue.write_buffer(&self.chunk, 0, crate::as_bytes(&[start + i as u32 * BATCH, part.len() as u32, 0, 0]));
             let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
             self.gpu.encode(&mut encoder, &self.prefill, 1);
             self.gpu.queue.submit([encoder.finish()]);
             last_len = part.len();
         }
         // The greedy pick increments tok[1], which then holds the next position.
-        self.gpu.queue.write_buffer(&self.tok, 0, crate::as_bytes(&[0u32, ids.len() as u32 - 1, 0, 0]));
+        self.gpu.queue.write_buffer(&self.tok, 0, crate::as_bytes(&[0u32, start + ids.len() as u32 - 1, 0, 0]));
         let row = (last_len as u64 - 1) * u64::from(HIDDEN) * 4;
         let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.hb, row, &self.h, 0, u64::from(HIDDEN) * 4);
@@ -240,6 +270,43 @@ impl Model {
 
     pub async fn logits(&self) -> Result<Vec<f32>> {
         self.gpu.read_f32(&self.logits, VOCAB as usize).await
+    }
+
+    /// Feeds one token at position `pos` and returns the logits for the next one. The host then
+    /// picks the token (sampling, grammar masks), so the GPU's own greedy pick is ignored.
+    pub async fn step(&self, token: u32, pos: u32) -> Result<Vec<f32>> {
+        if pos >= MAX_CONTEXT {
+            return Err(anyhow!("context limit of {MAX_CONTEXT} tokens reached"));
+        }
+        self.gpu.queue.write_buffer(&self.tok, 0, crate::as_bytes(&[token, pos, 0, 0]));
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        self.gpu.encode(&mut encoder, &self.token, 1);
+        encoder.copy_buffer_to_buffer(&self.logits, 0, &self.logits_staging, 0, u64::from(VOCAB) * 4);
+        self.gpu.queue.submit([encoder.finish()]);
+        let bytes = map_read(&self.gpu, &self.logits_staging).await?;
+        Ok(bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    }
+
+    /// Saves the recurrent states and KV-cache, e.g. after the system prompt and tool list.
+    pub fn snapshot(&self) {
+        let saved = self.saved.get_or_init(|| self.state.iter().map(|b| self.gpu.storage(b.size())).collect());
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        for (from, to) in self.state.iter().zip(saved) {
+            encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
+        }
+        self.gpu.queue.submit([encoder.finish()]);
+    }
+
+    /// Returns to the last `snapshot`. The recurrent state cannot be rolled back token by
+    /// token, so this is the only way back to a shorter prefix without recomputing it.
+    pub fn restore(&self) -> Result<()> {
+        let saved = self.saved.get().ok_or_else(|| anyhow!("no snapshot taken"))?;
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
+        for (from, to) in saved.iter().zip(&self.state) {
+            encoder.copy_buffer_to_buffer(from, 0, to, 0, from.size());
+        }
+        self.gpu.queue.submit([encoder.finish()]);
+        Ok(())
     }
 
     /// The token picked by the last step (`tok[0]`) and the next position (`tok[1]`).

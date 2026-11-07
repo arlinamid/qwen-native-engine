@@ -448,7 +448,12 @@ fn dequant_row(w: &[u32], s: &[u32], z: &[u32], row: usize, k: usize) -> Vec<f32
         .collect()
 }
 
+/// Largest absolute error relative to the largest reference value. NaN and infinity count as an
+/// infinite error: `f32::max` skips NaN, so an all-NaN output would otherwise score zero.
 fn rel_err(got: &[f32], want: &[f32]) -> f32 {
+    if got.len() != want.len() || got.iter().chain(want).any(|v| !v.is_finite()) {
+        return f32::INFINITY;
+    }
     let scale = want.iter().fold(1e-6f32, |m, v| m.max(v.abs()));
     got.iter().zip(want).fold(0f32, |m, (g, w)| m.max((g - w).abs())) / scale
 }

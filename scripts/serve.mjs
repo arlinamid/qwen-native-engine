@@ -60,11 +60,18 @@ createServer(async (req, res) => {
       return;
     }
     const stat = await fs.stat(file);
+    if (!stat.isFile()) {
+      res.writeHead(404).end();
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream',
       'Content-Length': stat.size,
     });
-    createReadStream(file).pipe(res);
+    // Stream errors arrive after the try block has returned; unhandled, they stop the server.
+    createReadStream(file)
+      .on('error', (error) => res.destroy(error))
+      .pipe(res);
   } catch (error) {
     res.writeHead(error.code === 'ENOENT' ? 404 : 500).end(String(error.message));
   }

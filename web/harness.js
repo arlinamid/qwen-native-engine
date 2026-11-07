@@ -95,12 +95,16 @@ function matches(call, expected) {
   return true;
 }
 
-/** A case passes only if the exact sequence of expected calls was made, and nothing else. */
+/**
+ * A case passes only if the exact sequence of expected calls was made and executed, with no
+ * rejected call and no malformed output on the way.
+ */
 export function scoreCase(testCase, outcome) {
   const calls = outcome.calls;
   const expected = testCase.expected;
   const toolsRight = calls.length === expected.length && expected.every((e, i) => calls[i].name === e.name);
-  const pass = toolsRight && expected.every((e, i) => matches(calls[i], e));
+  const clean = outcome.parse_errors === 0 && calls.every((c) => !c.error);
+  const pass = clean && toolsRight && expected.every((e, i) => matches(calls[i], e));
   return { toolsRight, pass };
 }
 

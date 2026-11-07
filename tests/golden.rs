@@ -125,6 +125,9 @@ fn grammar_accepts_real_calls_token_by_token() {
         "\n<function=get_weather>\n<parameter=city>\nGyőr\n</parameter>\n<parameter=unit>\ncelsius\n</parameter>\n</function>\n</tool_call>",
         "\n<function=get_weather>\n<parameter=city>\nNew York\n</parameter>\n</function>\n</tool_call>",
         "\n<function=set_timer>\n<parameter=minutes>\n2.5\n</parameter>\n<parameter=label>\ntwo\nlines\n</parameter>\n</function>\n</tool_call>",
+        "\n<function=set_timer>\n<parameter=minutes>\n0\n</parameter>\n</function>\n</tool_call>",
+        "\n<function=set_timer>\n<parameter=minutes>\n-0.5\n</parameter>\n</function>\n</tool_call>",
+        "\n<function=set_timer>\n<parameter=minutes>\n1e3\n</parameter>\n</function>\n</tool_call>",
         "\n<function=now>\n</function>\n</tool_call>",
     ] {
         walk(&grammar, &tokenizer, &tools, text).unwrap_or_else(|e| panic!("{text:?}: {e}"));
@@ -143,6 +146,9 @@ fn grammar_rejects_invalid_calls() {
         "\n<function=get_weather>\n</function>",
         "\n<function=get_weather>\n<parameter=city>\nGyőr\n</parameter>\n<parameter=unit>\nkelvin",
         "\n<function=set_timer>\n<parameter=minutes>\nsoon",
+        // Leading zeros are not JSON and would fail to parse.
+        "\n<function=set_timer>\n<parameter=minutes>\n01\n</parameter>",
+        "\n<function=set_timer>\n<parameter=minutes>\n-01\n</parameter>",
         "\n<function=get_weather>\n<parameter=nope>",
     ] {
         assert!(walk(&grammar, &tokenizer, &tools, text).is_err(), "the grammar allowed {text:?}");

@@ -250,10 +250,17 @@ impl Model {
 
     /// Greedy decoding from the current state, `window` tokens per submission. The first
     /// returned token is the pick after the prompt; each step feeds back the previous pick.
+    /// Fails instead of decoding past the KV-cache, whose last slot the shaders would otherwise
+    /// keep overwriting.
     pub async fn decode(&self, n: usize, window: u32, stop: &[u32]) -> Result<Vec<u32>> {
-        let mut out = vec![self.last_token().await?.0];
+        let (first, mut next_pos) = self.last_token().await?;
+        let mut out = vec![first];
         while out.len() < n && !stop.contains(out.last().unwrap()) {
             let steps = window.min((n - out.len()) as u32);
+            if u64::from(next_pos) + u64::from(steps) > u64::from(MAX_CONTEXT) {
+                return Err(anyhow!("context limit of {MAX_CONTEXT} tokens reached after {} generated tokens", out.len()));
+            }
+            next_pos += steps;
             let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
             // Each step leaves its pick in `tok`; with a window, only the last one is read back,
             // so the window is used for timing and the token-by-token path for the output.

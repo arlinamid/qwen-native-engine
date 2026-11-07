@@ -30,8 +30,9 @@ fn value_rule(schema: &Value) -> String {
         return format!("({})", literals.join(" | "));
     }
     match schema.get("type").and_then(Value::as_str) {
-        Some("number") => format!("/-?[0-9]+(\\.[0-9]+)?{END_REGEX}/"),
-        Some("integer") => format!("/-?[0-9]+{END_REGEX}/"),
+        // JSON number syntax (no leading zeros), so that every value the grammar allows parses.
+        Some("number") => format!("/-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?{END_REGEX}/"),
+        Some("integer") => format!("/-?(0|[1-9][0-9]*){END_REGEX}/"),
         Some("boolean") => format!("/(true|false){END_REGEX}/"),
         Some("array" | "object") => format!("%json {schema} \"{END_LITERAL}\""),
         _ => format!("/[^<\\n][^<]*{END_REGEX}/"),

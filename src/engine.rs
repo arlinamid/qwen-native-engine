@@ -449,6 +449,10 @@ impl Engine {
         mode: Mode,
         on_token: Option<&Function>,
     ) -> Result<(String, GenStats), JsValue> {
+        // Without a forward pass the logits would still be those of the previous request.
+        if ids.is_empty() {
+            return Err(js_err("empty prompt"));
+        }
         let mut stats = GenStats { prompt_tokens: ids.len(), ..Default::default() };
         let mode = if tools.is_empty() { Mode::Free } else { mode };
 
@@ -587,12 +591,14 @@ impl Engine {
                 text.insert_str(0, "<tool_call>");
             }
             let parsed = parse_output(&text, &tools);
+            let natural_end = stats.stop == "eos";
             outcome.steps.push(AgentStep { text: text.clone(), stats });
             emit(on_event, &json!({ "type": "assistant", "step": step, "text": text }))?;
 
             if parsed.tool_calls.is_empty() && parsed.errors.is_empty() {
+                // A reply cut off by the token limit is returned, but not as finished.
                 outcome.answer = parsed.content;
-                outcome.finished = true;
+                outcome.finished = natural_end;
                 break;
             }
 

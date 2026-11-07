@@ -1,0 +1,47 @@
+{
+  "ep": "cpu",
+  "prefill_ep": null,
+  "dll": ".toolchain/ort-dll/cpu/onnxruntime.dll",
+  "dtype": "q4",
+  "threads": 4,
+  "prefill_chunk": 0,
+  "load_ms": 2548.2091,
+  "runs": [
+    {
+      "name": "warmup",
+      "text": "The sky is blue",
+      "prompt_tokens": 23,
+      "new_tokens": 4,
+      "prefill_ms": 500.63259999999997,
+      "decode_ms": 396.0992,
+      "tokens_per_s": 7.573860285504238,
+      "embed_ms": 0.06206666666666666,
+      "run_ms": 131.20296666666664,
+      "read_ms": 0.09296666666666668
+    },
+    {
+      "name": "short",
+      "text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n1.  **Sunlight is a mix of colors**: When the sun shines, it isn't just one color; it is a mix of all the colors",
+      "prompt_tokens": 23,
+      "new_tokens": 64,
+      "prefill_ms": 350.2009,
+      "decode_ms": 7600.847500000001,
+      "tokens_per_s": 8.288549401892354,
+      "embed_ms": 0.05609365079365078,
+      "run_ms": 119.9930619047619,
+      "read_ms": 0.09980476190476195
+    },
+    {
+      "name": "long",
+      "text": "The text provided is a repetition of the same sentence repeated multiple times, which appears to be a copy-paste error or a glitch in the source material.\n\n**Summary:**\nThe history of computing spans the evolution from mechanical calculators to modern networked machines, including the development of vacuum tubes, transistors,",
+      "prompt_tokens": 644,
+      "new_tokens": 64,
+      "prefill_ms": 9272.8547,
+      "decode_ms": 8228.7447,
+      "tokens_per_s": 7.65608878350546,
+      "embed_ms": 0.05969682539682537,
+      "run_ms": 129.9321650793651,
+      "read_ms": 0.10526031746031743
+    }
+  ]
+}

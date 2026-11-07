@@ -1,0 +1,31 @@
+[
+  {
+    "compared_tokens": 32,
+    "cosine": 0.9999988278471268,
+    "decode_ms_per_token": 52.283141935483876,
+    "matching_tokens": 32,
+    "max_abs_diff": 0.020773887634277344,
+    "prefill_ms": 13198.4944,
+    "prompt": "The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. The history of computing spans mechanical calculators, vacuum tubes, transistors, integrated circuits and the networked machines of today. \r\nSummarize the text above.",
+    "reference_text": "The text provided is a repetition of the same sentence repeated multiple times, which appears to be a copy-paste error or a glitch in the source material.\n\n",
+    "text": "The text provided is a repetition of the same sentence repeated multiple times, which appears to be a copy-paste error or a glitch in the source material.\n\n",
+    "top1_same": true,
+    "top5_overlap": 5
+  },
+  {
+    "compared_tokens": 32,
+    "cosine": 0.9999989553683164,
+    "decode_ms_per_token": 52.75559677419354,
+    "matching_tokens": 32,
+    "max_abs_diff": 0.019103050231933594,
+    "prefill_ms": 573.8815000000001,
+    "prompt": "Explain in simple terms why the sky is blue.",
+    "reference_text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n",
+    "text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n",
+    "top1_same": true,
+    "top5_overlap": 5
+  },
+  {
+    "window4_ms_per_token": 51.17565625
+  }
+]

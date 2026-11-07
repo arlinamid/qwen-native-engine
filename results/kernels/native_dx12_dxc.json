@@ -1,0 +1,186 @@
+{
+  "adapter": "Intel(R) UHD Graphics 630 (IntegratedGpu, driver )",
+  "backend": "Dx12",
+  "shader_f16": true,
+  "checks": [
+    {
+      "name": "gemv Store",
+      "rel_err": 7.7712866e-7,
+      "ok": true
+    },
+    {
+      "name": "gemv Accumulate",
+      "rel_err": 5.766082e-7,
+      "ok": true
+    },
+    {
+      "name": "gemv SwiGlu",
+      "rel_err": 6.6445034e-7,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 Store",
+      "rel_err": 0.0007040529,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 split4 Store",
+      "rel_err": 0.00055391353,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 Accumulate",
+      "rel_err": 0.0005654458,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 split4 Accumulate",
+      "rel_err": 0.00041809614,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 SwiGlu",
+      "rel_err": 0.0026919874,
+      "ok": true
+    },
+    {
+      "name": "gemv f16 split4 SwiGlu",
+      "rel_err": 0.0003980688,
+      "ok": true
+    },
+    {
+      "name": "gdn output",
+      "rel_err": 2.563144e-7,
+      "ok": true
+    },
+    {
+      "name": "gdn state",
+      "rel_err": 2.434477e-7,
+      "ok": true
+    },
+    {
+      "name": "attention",
+      "rel_err": 1.857358e-7,
+      "ok": true
+    },
+    {
+      "name": "embed",
+      "rel_err": 0.0,
+      "ok": true
+    },
+    {
+      "name": "argmax -> 123457 pos 42",
+      "rel_err": 0.0,
+      "ok": true
+    }
+  ],
+  "dispatch_us": 4.535950000000001,
+  "stream_gb_per_s": 14.478804276909674,
+  "gemv": [
+    {
+      "name": "gdn in-proj",
+      "rows": 8224,
+      "k": 1024,
+      "tile": {
+        "f16": false,
+        "tpr": 8,
+        "rpw": 8,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.74535,
+      "gb_per_s": 6.0023559401623405
+    },
+    {
+      "name": "attention in-proj",
+      "rows": 5120,
+      "k": 1024,
+      "tile": {
+        "f16": true,
+        "tpr": 4,
+        "rpw": 32,
+        "rpt": 4,
+        "splits": 1
+      },
+      "ms": 0.22283666666666668,
+      "gb_per_s": 12.499199712794123
+    },
+    {
+      "name": "out-proj",
+      "rows": 1024,
+      "k": 2048,
+      "tile": {
+        "f16": false,
+        "tpr": 16,
+        "rpw": 4,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.1356433333333333,
+      "gb_per_s": 8.213540412355934
+    },
+    {
+      "name": "mlp gate+up (swiglu)",
+      "rows": 7168,
+      "k": 1024,
+      "tile": {
+        "f16": true,
+        "tpr": 4,
+        "rpw": 16,
+        "rpt": 4,
+        "splits": 4
+      },
+      "ms": 0.41418,
+      "gb_per_s": 9.414727896083829
+    },
+    {
+      "name": "mlp down",
+      "rows": 1024,
+      "k": 3584,
+      "tile": {
+        "f16": false,
+        "tpr": 16,
+        "rpw": 4,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.2516466666666667,
+      "gb_per_s": 7.747752139242852
+    },
+    {
+      "name": "lm head",
+      "rows": 248320,
+      "k": 1024,
+      "tile": {
+        "f16": true,
+        "tpr": 4,
+        "rpw": 32,
+        "rpt": 4,
+        "splits": 1
+      },
+      "ms": 7.19658,
+      "gb_per_s": 18.770871719622374
+    }
+  ],
+  "gdn_layer_ms": 0.24386333333333335,
+  "attention_layer_ms": 0.7022166666666666,
+  "weight_mb": 399.443968,
+  "dispatches_per_token": 197,
+  "tokens": [
+    {
+      "window": 1,
+      "ms_per_token": 46.85120625,
+      "tokens_per_s": 21.344167632823755
+    },
+    {
+      "window": 4,
+      "ms_per_token": 46.058559375,
+      "tokens_per_s": 21.711491057681393
+    },
+    {
+      "window": 8,
+      "ms_per_token": 47.1081375,
+      "tokens_per_s": 21.227754971208533
+    }
+  ]
+}

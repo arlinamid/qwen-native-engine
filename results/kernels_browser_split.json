@@ -1,0 +1,180 @@
+{
+ "adapter": " (Other, driver )",
+ "backend": "BrowserWebGpu",
+ "shader_f16": true,
+ "checks": [
+  {
+   "name": "gemv Store",
+   "rel_err": 7.771286618662998e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv Accumulate",
+   "rel_err": 5.766082153968455e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv SwiGlu",
+   "rel_err": 6.836171451141126e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Store",
+   "rel_err": 0.00042994917021133006,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 split4 Store",
+   "rel_err": 0.0006299898959696293,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Accumulate",
+   "rel_err": 0.0005480108666233718,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 split4 Accumulate",
+   "rel_err": 0.0004525103431660682,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 SwiGlu",
+   "rel_err": 0.0019663884304463863,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 split4 SwiGlu",
+   "rel_err": 0.0006507611251436174,
+   "ok": true
+  },
+  {
+   "name": "gdn output",
+   "rel_err": 4.485502529405494e-7,
+   "ok": true
+  },
+  {
+   "name": "gdn state",
+   "rel_err": 2.0287306767841073e-7,
+   "ok": true
+  },
+  {
+   "name": "attention",
+   "rel_err": 2.4764773343122215e-7,
+   "ok": true
+  },
+  {
+   "name": "embed",
+   "rel_err": 0,
+   "ok": true
+  },
+  {
+   "name": "argmax -> 123457 pos 42",
+   "rel_err": 0,
+   "ok": true
+  }
+ ],
+ "dispatch_us": 3.8874999999999997,
+ "gemv": [
+  {
+   "name": "gdn in-proj",
+   "rows": 8224,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4,
+    "splits": 1
+   },
+   "ms": 0.41300000000000003,
+   "gb_per_s": 10.832581113801453
+  },
+  {
+   "name": "attention in-proj",
+   "rows": 5120,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4,
+    "splits": 1
+   },
+   "ms": 0.29766666666666663,
+   "gb_per_s": 9.357043673012319
+  },
+  {
+   "name": "out-proj",
+   "rows": 1024,
+   "k": 2048,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 16,
+    "rpt": 1,
+    "splits": 1
+   },
+   "ms": 0.20633333333333334,
+   "gb_per_s": 5.39957350565428
+  },
+  {
+   "name": "mlp gate+up (swiglu)",
+   "rows": 7168,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 8,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 1
+   },
+   "ms": 0.749,
+   "gb_per_s": 5.206130841121495
+  },
+  {
+   "name": "mlp down",
+   "rows": 1024,
+   "k": 3584,
+   "tile": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 4
+   },
+   "ms": 0.49866666666666665,
+   "gb_per_s": 3.9098181818181814
+  },
+  {
+   "name": "lm head",
+   "rows": 248320,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 2
+   },
+   "ms": 8.862,
+   "gb_per_s": 15.243294967276011
+  }
+ ],
+ "gdn_layer_ms": 0.3333333333333333,
+ "attention_layer_ms": 0.7096666666666667,
+ "weight_mb": 399.443968,
+ "dispatches_per_token": 198,
+ "tokens": [
+  {
+   "window": 1,
+   "ms_per_token": 47.455625,
+   "tokens_per_s": 21.072317559825628
+  },
+  {
+   "window": 4,
+   "ms_per_token": 45.851093750000004,
+   "tokens_per_s": 21.809730547594622
+  }
+ ]
+}

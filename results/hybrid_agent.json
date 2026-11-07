@@ -1,0 +1,107 @@
+{
+ "load": {
+  "dtype": "q4f16",
+  "device": "webgpu",
+  "prefill_device": "wasm",
+  "kv_location": "gpu-buffer",
+  "logits_location": "gpu-buffer",
+  "state_tensors": 48,
+  "state_dtype": "float16",
+  "gpu": {
+   "available": true,
+   "vendor": "intel",
+   "architecture": "gen-9",
+   "description": "",
+   "shaderF16": true,
+   "maxBufferSize": 2147483648,
+   "maxStorageBufferBindingSize": 2147483644
+  },
+  "crossOriginIsolated": true,
+  "wasmMs": 19.1599999666214,
+  "sessionMs": 10672.3599999547
+ },
+ "grammarMs": 1224.1500000357628,
+ "prefix": {
+  "without": {
+   "text": "<tool_call>\n<function=get_weather>\n<parameter=city>\nParis\n</parameter>\n<parameter=unit>\ncelsius\n</parameter>\n</function>\n</tool_call>",
+   "prompt_tokens": 663,
+   "cached_tokens": 0,
+   "new_tokens": 38,
+   "grammar_init_ms": 0.004999995231628418,
+   "prefill_ms": 25582.269999980927,
+   "ttft_ms": 25582.555000007153,
+   "decode_ms": 7154.9800000190735,
+   "tokens_per_s": 5.171223399632336,
+   "embed_ms": 5.2032432378949345,
+   "run_ms": 137.4343243289638,
+   "read_ms": 48.977027027993586,
+   "sample_ms": 0.2001315763122157,
+   "mask_ms": 1.2674999989961322,
+   "stop": "grammar_end"
+  },
+  "first_with_cache": {
+   "text": "<tool_call>\n<function=get_weather>\n<parameter=city>\nParis\n</parameter>\n<parameter=unit>\ncelsius\n</parameter>\n</function>\n</tool_call>",
+   "prompt_tokens": 663,
+   "cached_tokens": 0,
+   "new_tokens": 38,
+   "grammar_init_ms": 0,
+   "prefill_ms": 25383.630000054836,
+   "ttft_ms": 25383.860000014305,
+   "decode_ms": 5639.089999973774,
+   "tokens_per_s": 6.561342344274001,
+   "embed_ms": 6.047027028895713,
+   "run_ms": 97.46081080791113,
+   "read_ms": 47.557837835840274,
+   "sample_ms": 0.24552631535028158,
+   "mask_ms": 0.7597368469363764,
+   "stop": "grammar_end"
+  },
+  "hit": {
+   "text": "<tool_call>\n<function=get_weather>\n<parameter=city>\nParis\n</parameter>\n<parameter=unit>\ncelsius\n</parameter>\n</function>\n</tool_call>",
+   "prompt_tokens": 663,
+   "cached_tokens": 644,
+   "new_tokens": 38,
+   "grammar_init_ms": 0,
+   "prefill_ms": 2340.3700000047684,
+   "ttft_ms": 2340.604999959469,
+   "decode_ms": 5390.389999985695,
+   "tokens_per_s": 6.864067349504988,
+   "embed_ms": 4.669324322326763,
+   "run_ms": 91.66567567876868,
+   "read_ms": 48.227027024771715,
+   "sample_ms": 0.19460526422450417,
+   "mask_ms": 0.6298684164097434,
+   "stop": "grammar_end"
+  }
+ },
+ "agent": {
+  "ms": 15244.395000040531,
+  "calls": [
+   {
+    "name": "get_weather",
+    "arguments": {
+     "city": "Paris",
+     "unit": "celsius"
+    },
+    "error": null
+   }
+  ],
+  "answer": "The weather in Paris, in Celsius, is currently **18°C** with a **cloudy** condition.",
+  "steps": [
+   {
+    "p": 667,
+    "c": 644,
+    "ttft": 1980.1599999666214,
+    "prefill": 1979.839999973774,
+    "tps": 6.835724605271047
+   },
+   {
+    "p": 744,
+    "c": 644,
+    "ttft": 4458.774999976158,
+    "prefill": 4458.540000021458,
+    "tps": 6.499530261309013
+   }
+  ]
+ }
+}

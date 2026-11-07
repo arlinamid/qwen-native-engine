@@ -1,0 +1,46 @@
+{
+ "grammarMs": 2050.564999997616,
+ "firstMs": 95693.55500000715,
+ "secondMs": 25231.67500001192,
+ "ev": [
+  {
+   "type": "assistant",
+   "step": 0,
+   "text": "Számítjuk meg a feladatot:\n\n1. Számítsuk ki a számokat: $3 + 4 = 7$\n2. Számítsuk össze: $12 \\times 7 = 84$\n\n**84**"
+  }
+ ],
+ "answer": "Számítjuk meg a feladatot:\n\n1. Számítsuk ki a számokat: $3 + 4 = 7$\n2. Számítsuk össze: $12 \\times 7 = 84$\n\n**84**",
+ "steps": [
+  {
+   "p": 672,
+   "c": 0,
+   "ttft": 87895,
+   "tps": 7.1951273569509
+  }
+ ],
+ "b": {
+  "calls": [
+   {
+    "name": "get_weather",
+    "arguments": {
+     "city": "Paris",
+     "unit": "celsius"
+    },
+    "error": null
+   }
+  ],
+  "answer": "The weather in Paris, in Celsius, is currently **18°C** with a **cloudy** condition.",
+  "steps": [
+   {
+    "p": 667,
+    "c": 644,
+    "ttft": 2993
+   },
+   {
+    "p": 744,
+    "c": 644,
+    "ttft": 13619
+   }
+  ]
+ }
+}

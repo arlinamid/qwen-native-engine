@@ -1,0 +1,46 @@
+{
+  "ep": "directml",
+  "dll": ".toolchain/ort-dll/directml/onnxruntime.dll",
+  "dtype": "q4f16",
+  "threads": 4,
+  "prefill_chunk": 1,
+  "load_ms": 2755.8565000000003,
+  "runs": [
+    {
+      "name": "warmup",
+      "text": "!!!!",
+      "prompt_tokens": 23,
+      "new_tokens": 4,
+      "prefill_ms": 27438.1736,
+      "decode_ms": 2732.8815999999997,
+      "tokens_per_s": 1.0977423976216167,
+      "embed_ms": 0.14866666666666664,
+      "run_ms": 887.0636,
+      "read_ms": 0.6013666666666667
+    },
+    {
+      "name": "short",
+      "text": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "prompt_tokens": 23,
+      "new_tokens": 64,
+      "prefill_ms": 7811.928500000001,
+      "decode_ms": 54293.1619,
+      "tokens_per_s": 1.160367121665095,
+      "embed_ms": 0.13085396825396825,
+      "run_ms": 839.4165761904761,
+      "read_ms": 0.4838999999999999
+    },
+    {
+      "name": "long",
+      "text": "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!",
+      "prompt_tokens": 644,
+      "new_tokens": 64,
+      "prefill_ms": 535023.0355,
+      "decode_ms": 58407.1487,
+      "tokens_per_s": 1.078635088379173,
+      "embed_ms": 0.1243603174603175,
+      "run_ms": 907.6755777777777,
+      "read_ms": 0.5385190476190477
+    }
+  ]
+}

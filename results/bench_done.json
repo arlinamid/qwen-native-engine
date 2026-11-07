@@ -1,0 +1,8 @@
+{
+ "log": [
+  "A_kvgpu ok",
+  "B_embed_wasm ERR Error: Can't create a session. ERROR_CODE: 9, ERROR_MESSAGE: Failed to find kernel for com.microsoft.GatherBlockQuantized(1) (node:'/model/embed_tokens/Gather_Quant' ep:'CPUExecutionProvider'). Kernel not found\n    at z (http://localhost:8377/vendor/ort/ort.webgpu.bundle.min.mjs:10:31153)\n    at ur (http://localhost:8377/vendor/ort/ort.webgpu.bundle.min.mjs:11:22616)\n    at async Ir.loadModel (http://localhost:8377/vendor/ort/ort.webgpu.bundle.min.mjs:11:37100)\n    at async Br.createInferenceSessionHandler (http://localhost:8377/vendor/ort/ort.webgpu.bundle.min.mjs:11:39119)\n    at async a.create (http://localhost:8377/vendor/ort/ort.webgpu.bundle.min.mjs:6:21197)",
+  "C_kvcpu ok",
+  "D_batch_prefill ok"
+ ]
+}

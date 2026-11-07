@@ -1,0 +1,47 @@
+{
+  "ep": "webgpu",
+  "prefill_ep": "cpu",
+  "dll": ".toolchain/ort-dll/webgpu/onnxruntime.dll",
+  "dtype": "q4f16",
+  "threads": 4,
+  "prefill_chunk": 0,
+  "load_ms": 4105.329000000001,
+  "runs": [
+    {
+      "name": "warmup",
+      "text": "The sky is blue",
+      "prompt_tokens": 23,
+      "new_tokens": 4,
+      "prefill_ms": 405.9387,
+      "decode_ms": 1027.5941,
+      "tokens_per_s": 2.919440662417194,
+      "embed_ms": 0.11503333333333333,
+      "run_ms": 336.29613333333333,
+      "read_ms": 0.4099333333333333
+    },
+    {
+      "name": "short",
+      "text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n1.  **Sunlight is a mix of colors**: When the sun shines, it isn't just one color; it is a mix of all the colors",
+      "prompt_tokens": 23,
+      "new_tokens": 64,
+      "prefill_ms": 360.96590000000003,
+      "decode_ms": 6472.9329,
+      "tokens_per_s": 9.73283687213875,
+      "embed_ms": 0.13213809523809522,
+      "run_ms": 101.35986349206351,
+      "read_ms": 0.4222190476190476
+    },
+    {
+      "name": "long",
+      "text": "The text provided is a repetition of the same sentence repeated multiple times, which appears to be a copy-paste error or a glitch in the source material.\n\n**Summary:**\nThe history of computing spans the evolution from mechanical calculators to modern networked machines, including the development of vacuum tubes, transistors,",
+      "prompt_tokens": 644,
+      "new_tokens": 64,
+      "prefill_ms": 9185.814699999999,
+      "decode_ms": 6756.6648000000005,
+      "tokens_per_s": 9.324126897637425,
+      "embed_ms": 0.13497777777777784,
+      "run_ms": 105.74963333333329,
+      "read_ms": 0.428884126984127
+    }
+  ]
+}

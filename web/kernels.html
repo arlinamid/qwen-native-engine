@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Decode Kernels</title>
+<style>
+  :root { color-scheme: light dark; --line: light-dark(#d4d4d8, #3f3f46); --muted: light-dark(#52525b, #a1a1aa); }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 860px; padding: 24px 16px 64px; font: 15px/1.5 system-ui, sans-serif; background: Canvas; color: CanvasText; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  button { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: Canvas; color: CanvasText; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: default; }
+  pre { margin: 12px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 44px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Saját dekódoló kernelek</h1>
+<p>Megvalósíthatósági mérés: Qwen3.5-0.8B méretű, véletlen 4 bites súlyok, egy token egyetlen GPU-beküldés.</p>
+<button id="run">Mérés indítása</button>
+<pre id="log"></pre>
+<script type="module">
+  import init, { run_bench } from './kpkg/qwen_kernels.js';
+
+  const log = (line) => { document.getElementById('log').textContent += `${line}\n`; };
+  let ready = null;
+
+  // Automation entry point: KB.run({ tokens: 32 }) resolves to the report.
+  window.KB = {
+    async run(config) {
+      ready ??= init();
+      await ready;
+      return run_bench(config, log);
+    },
+  };
+
+  document.getElementById('run').onclick = async (event) => {
+    event.target.disabled = true;
+    document.getElementById('log').textContent = '';
+    try {
+      const report = await window.KB.run({});
+      log(`\n${JSON.stringify(report.tokens)}`);
+    } catch (error) {
+      log(String(error));
+    }
+    event.target.disabled = false;
+  };
+</script>
+</body>
+</html>

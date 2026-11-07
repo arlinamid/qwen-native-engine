@@ -1,0 +1,166 @@
+{
+ "note": "stopped by user before completion; pass/fail per case only",
+ "stopped_at": "10:35:20",
+ "rows": [
+  {
+   "id": "s01",
+   "pass": true
+  },
+  {
+   "id": "s02",
+   "pass": true
+  },
+  {
+   "id": "s03",
+   "pass": true
+  },
+  {
+   "id": "s04",
+   "pass": true
+  },
+  {
+   "id": "s05",
+   "pass": false
+  },
+  {
+   "id": "s06",
+   "pass": true
+  },
+  {
+   "id": "s07",
+   "pass": false
+  },
+  {
+   "id": "s08",
+   "pass": false
+  },
+  {
+   "id": "s09",
+   "pass": false
+  },
+  {
+   "id": "s10",
+   "pass": false
+  },
+  {
+   "id": "s11",
+   "pass": false
+  },
+  {
+   "id": "s12",
+   "pass": false
+  },
+  {
+   "id": "s13",
+   "pass": false
+  },
+  {
+   "id": "s14",
+   "pass": false
+  },
+  {
+   "id": "s15",
+   "pass": false
+  },
+  {
+   "id": "s16",
+   "pass": false
+  },
+  {
+   "id": "s17",
+   "pass": false
+  },
+  {
+   "id": "s18",
+   "pass": false
+  },
+  {
+   "id": "s19",
+   "pass": false
+  },
+  {
+   "id": "s20",
+   "pass": false
+  },
+  {
+   "id": "n01",
+   "pass": true
+  },
+  {
+   "id": "n02",
+   "pass": true
+  },
+  {
+   "id": "n03",
+   "pass": true
+  },
+  {
+   "id": "n04",
+   "pass": true
+  },
+  {
+   "id": "n05",
+   "pass": false
+  },
+  {
+   "id": "n06",
+   "pass": true
+  },
+  {
+   "id": "n07",
+   "pass": true
+  },
+  {
+   "id": "n08",
+   "pass": true
+  },
+  {
+   "id": "n09",
+   "pass": true
+  },
+  {
+   "id": "n10",
+   "pass": true
+  },
+  {
+   "id": "c01",
+   "pass": false
+  },
+  {
+   "id": "c02",
+   "pass": false
+  },
+  {
+   "id": "c03",
+   "pass": false
+  },
+  {
+   "id": "c04",
+   "pass": false
+  },
+  {
+   "id": "c05",
+   "pass": true
+  },
+  {
+   "id": "c06",
+   "pass": false
+  },
+  {
+   "id": "c07",
+   "pass": false
+  },
+  {
+   "id": "c08",
+   "pass": false
+  },
+  {
+   "id": "c09",
+   "pass": false
+  },
+  {
+   "id": "c10",
+   "pass": false
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+[workspace]
+members = [".", "kernels"]
+
+[package]
+name = "qwen-wasm"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+anyhow = "1"
+tokenizers = { version = "0.21", default-features = false, features = ["unstable_wasm", "fancy-regex"] }
+llguidance = { version = "1", default-features = false, features = ["lark", "ahash", "wasm"] }
+toktrie = "1"
+toktrie_hf_tokenizers = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+instant = { version = "0.1", features = ["wasm-bindgen"] }
+console_error_panic_hook = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "half", "load-dynamic", "api-24", "directml", "webgpu"] }
+half = "2"

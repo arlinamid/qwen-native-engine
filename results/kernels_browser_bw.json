@@ -1,0 +1,110 @@
+{
+ "adapter": " (Other, driver )",
+ "backend": "BrowserWebGpu",
+ "shader_f16": true,
+ "checks": [],
+ "dispatch_us": 4.6375,
+ "stream_gb_per_s": 15.368817558902204,
+ "gemv": [
+  {
+   "name": "gdn in-proj",
+   "rows": 8224,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4,
+    "splits": 1
+   },
+   "ms": 0.3955,
+   "gb_per_s": 11.311898862199747
+  },
+  {
+   "name": "attention in-proj",
+   "rows": 5120,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4,
+    "splits": 1
+   },
+   "ms": 0.31716666666666665,
+   "gb_per_s": 8.781755123489228
+  },
+  {
+   "name": "out-proj",
+   "rows": 1024,
+   "k": 2048,
+   "tile": {
+    "f16": false,
+    "tpr": 8,
+    "rpw": 8,
+    "rpt": 1,
+    "splits": 1
+   },
+   "ms": 0.2,
+   "gb_per_s": 5.57056
+  },
+  {
+   "name": "mlp gate+up (swiglu)",
+   "rows": 7168,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 2
+   },
+   "ms": 0.5746666666666667,
+   "gb_per_s": 6.785484918793503
+  },
+  {
+   "name": "mlp down",
+   "rows": 1024,
+   "k": 3584,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 16,
+    "rpt": 1,
+    "splits": 1
+   },
+   "ms": 0.4075,
+   "gb_per_s": 4.7845300613496935
+  },
+  {
+   "name": "lm head",
+   "rows": 248320,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 2
+   },
+   "ms": 9.125,
+   "gb_per_s": 14.803953972602741
+  }
+ ],
+ "gdn_layer_ms": 0.29900000000000004,
+ "attention_layer_ms": 0.8426666666666667,
+ "weight_mb": 399.443968,
+ "dispatches_per_token": 198,
+ "tokens": [
+  {
+   "window": 1,
+   "ms_per_token": 45.25875,
+   "tokens_per_s": 22.095174966166763
+  },
+  {
+   "window": 4,
+   "ms_per_token": 45.605,
+   "tokens_per_s": 21.92742023900888
+  }
+ ]
+}

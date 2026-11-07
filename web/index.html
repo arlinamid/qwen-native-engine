@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Qwen3.5 WASM</title>
+<style>
+  :root { color-scheme: light dark; --line: light-dark(#d4d4d8, #3f3f46); --muted: light-dark(#52525b, #a1a1aa); --accent: light-dark(#1d4ed8, #93c5fd); }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 860px; padding: 24px 16px 64px; font: 15px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 24px 0 8px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  button, select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; background: Canvas; color: CanvasText; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .55; cursor: default; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  pre { margin: 8px 0 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 44px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Qwen3.5-0.8B a böngészőben</h1>
+<p>Rust WASM + ONNX Runtime Web. Minden helyben fut, a toolok demó adatokat adnak vissza.</p>
+
+<div class="row">
+  <label>KV-cache <select id="kv"><option value="gpu-buffer">GPU</option><option value="cpu">CPU</option></select></label>
+  <button id="load">Modell betöltése</button>
+</div>
+<pre id="status">Még nincs betöltve.</pre>
+
+<h2>Agent</h2>
+<textarea id="prompt">Mennyi 12*(3+4)?</textarea>
+<div class="row">
+  <label>Mód <select id="mode">
+    <option value="lazy">Nyelvtannal</option>
+    <option value="free">Nyelvtan nélkül</option>
+    <option value="required">Kötelező tool</option>
+  </select></label>
+  <label><input type="checkbox" id="thinking"> Thinking</label>
+  <button id="run" disabled>Futtatás</button>
+</div>
+<pre id="output"></pre>
+
+<script type="module">
+  import * as harness from './harness.js';
+
+  // Automation entry point for benchmarks and the evaluation.
+  window.QW = harness;
+
+  const $ = (id) => document.getElementById(id);
+
+  $('load').onclick = async () => {
+    $('load').disabled = true;
+    $('status').textContent = 'Betöltés…';
+    try {
+      const info = await harness.load({ kv_location: $('kv').value });
+      $('status').textContent = JSON.stringify(info, null, 1);
+      $('run').disabled = false;
+    } catch (error) {
+      $('status').textContent = String(error.message);
+    }
+    $('load').disabled = false;
+  };
+
+  $('run').onclick = async () => {
+    $('run').disabled = true;
+    const log = (line) => { $('output').textContent += `${line}\n`; };
+    $('output').textContent = '';
+    try {
+      const outcome = await harness.agent(
+        { user: $('prompt').value, mode: $('mode').value, thinking: $('thinking').checked, generation: { max_new_tokens: 256 } },
+        (event) => {
+          if (event.type === 'assistant') log(`[${event.step + 1}. lépés] ${event.text}`);
+          if (event.type === 'tool') log(`[tool] ${event.name}(${JSON.stringify(event.arguments)}) → ${event.result}`);
+        },
+      );
+      const speeds = outcome.steps.map((s) => `${s.stats.tokens_per_s.toFixed(1)} tok/s, első token ${s.stats.ttft_ms.toFixed(0)} ms`);
+      log(`\nVálasz: ${outcome.answer || '(nincs)'}\n${speeds.join('\n')}`);
+    } catch (error) {
+      log(String(error.message));
+    }
+    $('run').disabled = false;
+  };
+</script>
+</body>
+</html>

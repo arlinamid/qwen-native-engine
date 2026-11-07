@@ -1,0 +1,750 @@
+{
+ "mode": "lazy",
+ "thinking": false,
+ "summary": {
+  "all": {
+   "n": 40,
+   "tools_right": 17,
+   "pass": 15
+  },
+  "single": {
+   "n": 20,
+   "tools_right": 6,
+   "pass": 5
+  },
+  "none": {
+   "n": 10,
+   "tools_right": 9,
+   "pass": 9
+  },
+  "chain": {
+   "n": 10,
+   "tools_right": 2,
+   "pass": 1
+  },
+  "en": {
+   "n": 20,
+   "tools_right": 11,
+   "pass": 10
+  },
+  "hu": {
+   "n": 20,
+   "tools_right": 6,
+   "pass": 5
+  },
+  "invalid_outputs": 0,
+  "total_tokens": 3400,
+  "seconds": 877.6102949998378
+ },
+ "rows": [
+  {
+   "id": "s01",
+   "kind": "single",
+   "lang": "en",
+   "user": "What's the weather like in Lisbon right now?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "get_weather",
+     "arguments": {
+      "city": "Lisbon",
+      "unit": "celsius"
+     },
+     "error": null
+    }
+   ],
+   "answer": "The weather in Lisbon is currently sunny with a temperature of 21°C.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 56,
+   "ms": 23033.394999980927
+  },
+  {
+   "id": "s02",
+   "kind": "single",
+   "lang": "en",
+   "user": "What is 1234 times 56?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "calculate",
+     "arguments": {
+      "expression": "1234*56"
+     },
+     "error": null
+    }
+   ],
+   "answer": "1234 times 56 is 69,104.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 48,
+   "ms": 20739.25
+  },
+  {
+   "id": "s03",
+   "kind": "single",
+   "lang": "en",
+   "user": "Start a 15 minute timer for the pasta.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "set_timer",
+     "arguments": {
+      "minutes": 15,
+      "label": "Pasta Timer"
+     },
+     "error": null
+    }
+   ],
+   "answer": "The 15-minute timer for the pasta is now running!",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 52,
+   "ms": 21246.319999992847
+  },
+  {
+   "id": "s04",
+   "kind": "single",
+   "lang": "en",
+   "user": "Look through my notes for anything about the kitchen renovation.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "search_notes",
+     "arguments": {
+      "query": "kitchen renovation"
+     },
+     "error": null
+    }
+   ],
+   "answer": "I found a note about kitchen renovation. It mentions that tiles were ordered in May. Could you let me know if you need more information about this renovation?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 57,
+   "ms": 20525.100000023842
+  },
+  {
+   "id": "s05",
+   "kind": "single",
+   "lang": "en",
+   "user": "Text Maria that I'll be ten minutes late.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "I'm sorry, Maria. I'm sorry you're going to be ten minutes late. Let's make it up to you!\n\nHow can I help you today?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 34,
+   "ms": 7471.824999988079
+  },
+  {
+   "id": "s06",
+   "kind": "single",
+   "lang": "en",
+   "user": "What time is it in Tokyo? Use the IANA zone Asia/Tokyo.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "get_datetime",
+     "arguments": {
+      "timezone": "Asia/Tokyo"
+     },
+     "error": null
+    }
+   ],
+   "answer": "The time in Tokyo is **18:30** on November 7, 2026.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 51,
+   "ms": 23560.975000023842
+  },
+  {
+   "id": "s07",
+   "kind": "single",
+   "lang": "en",
+   "user": "I'm packing for Oslo tomorrow and my suitcase is already full. Should I expect it to be cold there today, in fahrenheit?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Hello! It seems like you're planning to pack for Oslo tomorrow. To determine if it will be cold in Fahrenheit, I need to know the current date and time. \n\nCould you please provide the current date and time? Once I have that, I can look up the weather for Oslo in Fahrenheit.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 61,
+   "ms": 13294.219999969006
+  },
+  {
+   "id": "s08",
+   "kind": "single",
+   "lang": "en",
+   "user": "We were 7 people and the bill came to 343 euros. How much does each of us owe?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "To calculate how much each person owes, I need to know the total number of people. You mentioned there were 7 people.\n\nTo find out how much each person owes, I need to know the total amount owed. The bill was 343 euros.\n\nSince you didn't specify how many people are owed the bill, I can't calculate the exact amount for each person. Could you please provide the number of people who are owed the bill?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 93,
+   "ms": 17309.40999996662
+  },
+  {
+   "id": "s09",
+   "kind": "single",
+   "lang": "en",
+   "user": "My tea needs to steep. Remind me in 4 minutes.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "send_message",
+     "arguments": {
+      "recipient": "You",
+      "text": "Hey! I'll remind you in 4 minutes. Let me know when you're ready."
+     },
+     "error": null
+    }
+   ],
+   "answer": "I've sent you a message reminding you in 4 minutes. Let me know when you're ready!",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 101,
+   "ms": 34075.660000026226
+  },
+  {
+   "id": "s10",
+   "kind": "single",
+   "lang": "en",
+   "user": "Did I write down the wifi password for the cabin somewhere?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "I don't have access to your personal notes or the cabin's WiFi password. To find this information, I recommend:\n\n1. Checking your personal notes for the password\n2. Looking at the cabin's settings or documentation\n3. Checking with your hotel staff or the property manager\n\nWould you like me to help you with anything else?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 69,
+   "ms": 13249.125
+  },
+  {
+   "id": "s11",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Milyen idő van most Debrecenben?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Az aktuális idő Debrecenben:\n\n**14: 30**\n\nA dátum és időpontot a következő időszaki időszakra kell figyelemelnünk:\n\n**14: 30**\n\nAz aktuális időpont: **14: 30**",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 65,
+   "ms": 12385.715000033379
+  },
+  {
+   "id": "s12",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Mennyi 987 meg 345 összege?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A megadott adatok alapján:\n\n987 meg 345 összege:\n\n987 + 345 = 1332\n\nTehát a válasz **1332**.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 47,
+   "ms": 9695.425000011921
+  },
+  {
+   "id": "s13",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Indíts egy 20 perces időzítőt a sütihez.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Íme egy 20 perces időzítő a sütihez:\n\n```\n20 perces időzítő\n```\n\nAzt áll meg, hogy a süti legyen kész.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 41,
+   "ms": 9421.939999997616
+  },
+  {
+   "id": "s14",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Keress a jegyzeteimben a balatoni nyaralásról.",
+   "toolsRight": true,
+   "pass": false,
+   "calls": [
+    {
+     "name": "search_notes",
+     "arguments": {
+      "query": "nyaralás"
+     },
+     "error": null
+    }
+   ],
+   "answer": "A jegyzetben a balatoni nyaralásról:\n\n**Szállás Siófokon, augusztus**",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 72,
+   "ms": 27543.490000009537
+  },
+  {
+   "id": "s15",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Írd meg Péternek, hogy holnap nem tudok menni.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Péternek, hogy holnap nem tudok menni.\n\nA feladatod szerint kérdelek, hogy holnap nem tudok menni. A válasz a feladat szerint nem kell, hogy meggyőzzön, hogy nem tudok menni. A válasz a feladat szerint nem kell, hogy meggyőzzön, hogy nem tudok menni.\n\nA válasz a feladat szerint nem kell, hogy meggyőzzön, hogy nem tudok menni.\n\nA válasz a feladat szerint nem kell, hogy meggyőzzön, hogy nem tudok menni.\n\nA válasz a feladat szerint nem kell, hogy meggyőzzön, hogy nem tudok menni.\n\nA válasz a feladat szerint nem kell,",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 24897.764999985695
+  },
+  {
+   "id": "s16",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Hány óra van most Budapesten? Az időzóna Europe/Budapest.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Az időzóna **Europe/Budapest** szerint a most Budapesten az idő:\n\n**14:30**\n\nA következő időzóna szerint:\n\n**14:30**",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 45,
+   "ms": 9900.185000002384
+  },
+  {
+   "id": "s17",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Szegedre utazom kocsival, a szomszédom is jön. Kell ma kabát ott?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Szegedre utazolok! Kocsival kell ma kabát?\n\nA szomszédom is jön, tehát a kocsik között kell egyet.\n\nMivel a szomszédom jön, a kocsik között kell egyet.\n\nSzegedre utazolok! Kocsival kell ma kabát?\n\nA szomszédom is jön, tehát a kocsik között kell egyet.\n\nSzegedre utazolok! Kocsival kell ma kabát?\n\nA szomszédom is jön, tehát a kocsik között kell egyet.\n\nSzegedre utazolok! Kocsival kell ma kabát?\n\nA szomszédom is jön, tehát a kocs",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 25738.785000026226
+  },
+  {
+   "id": "s18",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Heten ettünk, a számla 24500 forint. Mennyi jut egy főre?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A számla 24500 forint. A forint (Ft) a magyar forint, amely 1 forint = 100 centit.\n\nA jutás egy főre:\n24500 Ft / 100 Ft = 245 Ft\n\nTehát egy főre jut **245 forint**.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 75,
+   "ms": 14520.67000001669
+  },
+  {
+   "id": "s19",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Szólj 45 perc múlva, hogy ki kell venni a kenyeret a sütőből.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A szolgáltató nem rendelkezik egy olyan funkcióval, amely a feladatot megfogalmazza, hogy a kenyeret a sütőből vesse 45 perc múlva. A feladat nem tartalmazza a szükséges információkat (pl. sütő típusa, kenyeri tartalom, sütő állóhelye, etc.).\n\nA következő lépéseket követelheted:\n1. Meg kell értened a sütő típusát.\n2. Meg kell értened a kenyeri tartalmat.\n3. Meg kell értened a sütő állóhelyét.\n4. Meg kell értened, hogy milyen sütővel kell venni a kenyeret.\n\nHa ezek a paraméter",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 25497.60499995947
+  },
+  {
+   "id": "s20",
+   "kind": "single",
+   "lang": "hu",
+   "user": "Felírtam valahova a fogorvos telefonszámát, megkeresnéd?",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A felírtam valahova a fogorvos telefonszámát megkeresendő. A felírtam nem fogorvos, hanem egy szoftver, amely a szoftveres adatbázisszalagokat tartalmazza.\n\nA felírtam nem fogorvos, hanem egy szoftver, amely a szoftveres adatbázisszalagokat tartalmazza.\n\nA felírtam nem fogorvos, hanem egy szoftver, amely a szoftveres adatbázisszalagokat tartalmazza.\n\nA felírtam nem fogorvos, hanem egy szoftver, amely a szoftveres adatbázisszalagokat tartalmazza.\n\nA felírtam nem",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 26104.90499997139
+  },
+  {
+   "id": "n01",
+   "kind": "none",
+   "lang": "en",
+   "user": "Hi there! How are you?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Hello! I'm doing great, and I'm ready to help you with anything you need. How can I assist you today?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 26,
+   "ms": 6413.969999969006
+  },
+  {
+   "id": "n02",
+   "kind": "none",
+   "lang": "en",
+   "user": "Who wrote Pride and Prejudice?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Pride and Prejudice was written by **Jane Austen**, a famous English novelist. She is best known for her novels, including *Pride and Prejudice* (1813), *Northanger* (1816), and *Mansfield Park* (1817).",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 65,
+   "ms": 11493.549999952316
+  },
+  {
+   "id": "n03",
+   "kind": "none",
+   "lang": "en",
+   "user": "Give me a one-sentence definition of photosynthesis.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Photosynthesis is the process by which green plants, algae, and certain bacteria use sunlight to convert carbon dioxide and water into glucose and oxygen, serving as the foundation of most ecosystems.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 36,
+   "ms": 7961.200000047684
+  },
+  {
+   "id": "n04",
+   "kind": "none",
+   "lang": "en",
+   "user": "Thanks, that was all I needed!",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "You're welcome! I'm glad you had a good time. If you need anything else, feel free to ask.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 24,
+   "ms": 6020.704999983311
+  },
+  {
+   "id": "n05",
+   "kind": "none",
+   "lang": "en",
+   "user": "Suggest a good name for a black cat.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "search_notes",
+     "arguments": {
+      "query": "cat name"
+     },
+     "error": null
+    }
+   ],
+   "answer": "I can't find specific cat names in my search, but I can suggest some names for your black cat! \n\n**Black cats are known for their sleek, mysterious, and elegant appearance.** Here are some names that fit:\n\n1. **Shadow** - Suggests mystery and elegance\n2. **Violet** - A classic black cat name\n3. **Midnight** - Implies a mysterious and mysterious cat\n4. **Crimson** - Suggests a bold and mysterious cat\n5. **Obsidian** - A mysterious and mysterious cat\n6. **Velvet** - Suggests elegance and mystery\n7. **Crimson** - Suggests a bold and mysterious cat\n8. **Midnight** - Implies a mysterious and",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 222,
+   "ms": 46446
+  },
+  {
+   "id": "n06",
+   "kind": "none",
+   "lang": "hu",
+   "user": "Szia! Mi a helyzet?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Szia! Mi vagyok egy AI, és nem vagyok egy személyes személyiség. A kérdéseid és a válaszok alapján szeretném segíteni a tudásodban.\n\nMi a helyzet?",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 41,
+   "ms": 7854.949999988079
+  },
+  {
+   "id": "n07",
+   "kind": "none",
+   "lang": "hu",
+   "user": "Ki írta az Egri csillagokat?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Az Egri csillagok (Asteroidek) egy olyan csoport, amely a szomszédos világban található, de nem a földön lévő csillagok között helyezkednek el. Ezeket a csillagokat a következők alapján ismerik fel:\n\n1. **Szomszédos csillagok között** - a földön lévő csillagok között nem találunk ilyeneket.\n2. **Szomszédos csillagok között** - a földön lévő csillagok között nem találunk ilyeneket.\n3. **Szomszédos csillagok között** - a földön lévő csillagok között nem találunk ilyeneket.\n4. **Szomszéd",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 23974.0150000453
+  },
+  {
+   "id": "n08",
+   "kind": "none",
+   "lang": "hu",
+   "user": "Mi Franciaország fővárosa?",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Mi Franciaország fővárosa **Paris**.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 9,
+   "ms": 3572.574999988079
+  },
+  {
+   "id": "n09",
+   "kind": "none",
+   "lang": "hu",
+   "user": "Köszönöm a segítséget, ennyi volt!",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "Köszönöm! A kérdésre nem kell válaszolni, csak egy egyszerű válasz:\n\n**Ennyi volt!**\n\nÉn a segítséget szeretném, ha valamit kérdezhatsz vagy egy konkrét kérdést kérheted.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 52,
+   "ms": 10236.055000007153
+  },
+  {
+   "id": "n10",
+   "kind": "none",
+   "lang": "hu",
+   "user": "Mondj egy jó nevet egy vörös kutyának.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [],
+   "answer": "A nevet nem tudom megadni, mivel nem vagyok képes feladatot megoldani. A nevet egy vörös kutyának kell nevenni.\n\nMivel nem tudom megadni a nevet, a legjobb megoldás, hogy a nevet nevetd meg.\n\nMondjuk, hogy a nevet: \"A nevet egy vörös kutyának kell nevenni.\"\n\nEkkor a nevet: \"A nevet egy vörös kutyának kell nevenni.\"\n\nA nevet: \"A nevet egy vörös kutyának kell nevenni.\"\n\nA nevet: \"A nevet egy vörös kutyának kell nevenni.\"\n\nA nevet: \"A nevet egy vörös k",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 24438.394999980927
+  },
+  {
+   "id": "c01",
+   "kind": "chain",
+   "lang": "en",
+   "user": "Check the weather in Berlin, then text Anna the temperature.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "get_weather",
+     "arguments": {
+      "city": "Berlin",
+      "unit": "celsius"
+     },
+     "error": null
+    }
+   ],
+   "answer": "The temperature in Berlin is currently 17°C.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 49,
+   "ms": 21683.65499997139
+  },
+  {
+   "id": "c02",
+   "kind": "chain",
+   "lang": "en",
+   "user": "Find the door code in my notes and send it to Tom.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "I can't find the door code in your notes yet. Could you please search for \"door code\" in your notes? Once you provide the search query, I'll be happy to help you find it and send it to Tom.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 47,
+   "ms": 9804.074999988079
+  },
+  {
+   "id": "c03",
+   "kind": "chain",
+   "lang": "en",
+   "user": "Calculate 18 times 7, then set a timer for that many minutes.",
+   "toolsRight": true,
+   "pass": false,
+   "calls": [
+    {
+     "name": "calculate",
+     "arguments": {
+      "expression": "18 * 7"
+     },
+     "error": null
+    },
+    {
+     "name": "set_timer",
+     "arguments": {
+      "minutes": 18,
+      "label": "18 minutes"
+     },
+     "error": null
+    }
+   ],
+   "answer": "You have calculated 18 times 7, which is 126. I have set a timer for 18 minutes.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 96,
+   "ms": 47303.185000002384
+  },
+  {
+   "id": "c04",
+   "kind": "chain",
+   "lang": "en",
+   "user": "Look up what my notes say about the meeting room, then message Lena the room number.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "search_notes",
+     "arguments": {
+      "query": "meeting room"
+     },
+     "error": null
+    },
+    {
+     "name": "set_timer",
+     "arguments": {
+      "minutes": 10,
+      "label": "Meeting Room Number"
+     },
+     "error": null
+    },
+    {
+     "name": "send_message",
+     "arguments": {
+      "recipient": "Lena",
+      "text": "The meeting room is now at number 512."
+     },
+     "error": null
+    }
+   ],
+   "answer": "I've looked up the notes about the meeting room and sent a message to Lena. The room number is now 512.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 140,
+   "ms": 82799.99499994516
+  },
+  {
+   "id": "c05",
+   "kind": "chain",
+   "lang": "en",
+   "user": "Get the current time in Europe/London and send it to Sam.",
+   "toolsRight": true,
+   "pass": true,
+   "calls": [
+    {
+     "name": "get_datetime",
+     "arguments": {
+      "timezone": "Europe/London"
+     },
+     "error": null
+    },
+    {
+     "name": "send_message",
+     "arguments": {
+      "recipient": "Sam",
+      "text": "The current time in Europe/London is 2026-11-07 09:42:00"
+     },
+     "error": null
+    }
+   ],
+   "answer": "I've sent the current time in Europe/London to Sam. The time is now 2026-11-07 09:42:00.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 129,
+   "ms": 55716.219999969006
+  },
+  {
+   "id": "c06",
+   "kind": "chain",
+   "lang": "hu",
+   "user": "Nézd meg, milyen idő van Pécsen, aztán írd meg Katinak a hőmérsékletet.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "Pécsen a következő idő:\n\n**Pécs**\n- **Hőmérséklet**: 15°C\n\n**Kína**\n- **Hőmérséklet**: 22°C\n\nIgen, a hőmérséklet a kína szerint 22 fok van.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 67,
+   "ms": 13792.939999997616
+  },
+  {
+   "id": "c07",
+   "kind": "chain",
+   "lang": "hu",
+   "user": "Keresd meg a jegyzeteimben a kapukódot, és küldd el Gábornak.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A megadott információk alapján nem tudom pontosan a jegyzetbe melyik kapukódot szerezhettek meg. A jegyzetben nem található meg a kapukódot.\n\nKétsélen, hogy a kapukódot a következőket tartalmazza:\n- A kapukódot neve\n- A kapukódot típusa (pl. \"kapukódot\")\n- A kapukódot típusa (pl. \"kapukódot\")\n\nHa a kapukódot a következőket tartalmazza:\n- A kapukódot neve\n- A kapukódot típusa (pl. \"kapukódot\")\n- A kapukódot típusa (pl. \"kapukó",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 160,
+   "ms": 25712.05000001192
+  },
+  {
+   "id": "c08",
+   "kind": "chain",
+   "lang": "hu",
+   "user": "Számold ki, mennyi 9 szorozva 6-tal, majd indíts ennyi perces időzítőt.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "set_timer",
+     "arguments": {
+      "minutes": 54,
+      "label": "Számítás: 9 szorozva 6-tal"
+     },
+     "error": null
+    }
+   ],
+   "answer": "54 perces időzítőt indítottam.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 102,
+   "ms": 37892.625
+  },
+  {
+   "id": "c09",
+   "kind": "chain",
+   "lang": "hu",
+   "user": "Nézd meg a jegyzeteimben, hol lesz az értekezlet, és írd meg Zsófinak a terem számát.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [],
+   "answer": "A megadott információk hiányában nem tudom pontosan megadni a jegyzetben található értekezleti dátumot. A megadott információk hiányában nem tudom pontosan megadni a jegyzetben található értekezleti dátumot.\n\nA megadott információk hiányában nem tudom pontosan megadni a jegyzetben található értekezleti dátumot.\n\nA megadott információk hiányában nem tudom pontosan megadni a jegyzetben található értekezleti dátumot.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 122,
+   "ms": 21625.17000001669
+  },
+  {
+   "id": "c10",
+   "kind": "chain",
+   "lang": "hu",
+   "user": "Kérdezd le a pontos időt az Europe/Budapest időzónában, és küldd el Áginak.",
+   "toolsRight": false,
+   "pass": false,
+   "calls": [
+    {
+     "name": "get_datetime",
+     "arguments": {
+      "timezone": "Europe/Budapest"
+     },
+     "error": null
+    }
+   ],
+   "answer": "Az Ági a Budapest időzónában az aktuális időt látja meg: **2026-11-07 16:05:00**.",
+   "parseErrors": 0,
+   "invalidCalls": 0,
+   "tokens": 86,
+   "ms": 32657.19999998808
+  }
+ ]
+}

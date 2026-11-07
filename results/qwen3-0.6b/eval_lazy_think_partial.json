@@ -1,0 +1,46 @@
+{
+ "note": "stopped by user before completion; pass/fail per case only",
+ "stopped_at": "09:45:46",
+ "rows": [
+  {
+   "id": "s01",
+   "pass": true
+  },
+  {
+   "id": "s02",
+   "pass": false
+  },
+  {
+   "id": "s03",
+   "pass": true
+  },
+  {
+   "id": "s04",
+   "pass": true
+  },
+  {
+   "id": "s05",
+   "pass": true
+  },
+  {
+   "id": "s06",
+   "pass": true
+  },
+  {
+   "id": "s07",
+   "pass": true
+  },
+  {
+   "id": "s08",
+   "pass": false
+  },
+  {
+   "id": "s09",
+   "pass": true
+  },
+  {
+   "id": "s10",
+   "pass": false
+  }
+ ]
+}

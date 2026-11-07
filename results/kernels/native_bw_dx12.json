@@ -1,0 +1,110 @@
+{
+  "adapter": "Intel(R) UHD Graphics 630 (IntegratedGpu, driver )",
+  "backend": "Dx12",
+  "shader_f16": false,
+  "checks": [],
+  "dispatch_us": 2.84315,
+  "stream_gb_per_s": 28.340274868579304,
+  "gemv": [
+    {
+      "name": "gdn in-proj",
+      "rows": 8224,
+      "k": 1024,
+      "tile": {
+        "f16": false,
+        "tpr": 8,
+        "rpw": 8,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.5230633333333334,
+      "gb_per_s": 8.553182215028134
+    },
+    {
+      "name": "attention in-proj",
+      "rows": 5120,
+      "k": 1024,
+      "tile": {
+        "f16": false,
+        "tpr": 8,
+        "rpw": 8,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.3281266666666667,
+      "gb_per_s": 8.488429265121193
+    },
+    {
+      "name": "out-proj",
+      "rows": 1024,
+      "k": 2048,
+      "tile": {
+        "f16": false,
+        "tpr": 16,
+        "rpw": 4,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.14949666666666667,
+      "gb_per_s": 7.452420343820376
+    },
+    {
+      "name": "mlp gate+up (swiglu)",
+      "rows": 7168,
+      "k": 1024,
+      "tile": {
+        "f16": false,
+        "tpr": 8,
+        "rpw": 8,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.48790666666666666,
+      "gb_per_s": 7.992085918071762
+    },
+    {
+      "name": "mlp down",
+      "rows": 1024,
+      "k": 3584,
+      "tile": {
+        "f16": false,
+        "tpr": 16,
+        "rpw": 4,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 0.24753999999999998,
+      "gb_per_s": 7.876286660741699
+    },
+    {
+      "name": "lm head",
+      "rows": 248320,
+      "k": 1024,
+      "tile": {
+        "f16": false,
+        "tpr": 8,
+        "rpw": 8,
+        "rpt": 1,
+        "splits": 1
+      },
+      "ms": 15.27898,
+      "gb_per_s": 8.84130223352606
+    }
+  ],
+  "gdn_layer_ms": 0.17328666666666667,
+  "attention_layer_ms": 0.7096066666666666,
+  "weight_mb": 399.443968,
+  "dispatches_per_token": 173,
+  "tokens": [
+    {
+      "window": 1,
+      "ms_per_token": 56.716325,
+      "tokens_per_s": 17.631607830725986
+    },
+    {
+      "window": 4,
+      "ms_per_token": 56.53257812499999,
+      "tokens_per_s": 17.6889155451019
+    }
+  ]
+}

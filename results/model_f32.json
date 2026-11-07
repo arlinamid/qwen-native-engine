@@ -1,0 +1,31 @@
+[
+  {
+    "compared_tokens": 32,
+    "cosine": 0.9999991236172338,
+    "decode_ms_per_token": 59.8761064516129,
+    "matching_tokens": 32,
+    "max_abs_diff": 0.017739295959472656,
+    "prefill_ms": 1396.7056,
+    "prompt": "Explain in simple terms why the sky is blue.",
+    "reference_text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n",
+    "text": "The sky is blue because of a phenomenon called **Rayleigh scattering**, which happens when sunlight hits the Earth's atmosphere.\n\nHere is the simple explanation:\n\n",
+    "top1_same": true,
+    "top5_overlap": 5
+  },
+  {
+    "compared_tokens": 11,
+    "cosine": 0.9999993274748906,
+    "decode_ms_per_token": 59.31410999999999,
+    "matching_tokens": 11,
+    "max_abs_diff": 0.01586127281188965,
+    "prefill_ms": 1649.4973000000002,
+    "prompt": "Mi Magyarország fővárosa? Válaszolj egy mondatban.",
+    "reference_text": "Magyarország fővárosa **Budapest**.<|im_end|>",
+    "text": "Magyarország fővárosa **Budapest**.<|im_end|>",
+    "top1_same": true,
+    "top5_overlap": 5
+  },
+  {
+    "window4_ms_per_token": 58.934290624999996
+  }
+]

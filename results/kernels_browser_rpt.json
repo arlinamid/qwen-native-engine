@@ -1,0 +1,159 @@
+{
+ "adapter": " (Other, driver )",
+ "backend": "BrowserWebGpu",
+ "shader_f16": true,
+ "checks": [
+  {
+   "name": "gemv Store",
+   "rel_err": 7.771286618662998e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv Accumulate",
+   "rel_err": 5.766082153968455e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv SwiGlu",
+   "rel_err": 6.836171451141126e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Store",
+   "rel_err": 0.00042994917021133006,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Accumulate",
+   "rel_err": 0.0006996963056735694,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 SwiGlu",
+   "rel_err": 0.0010074680903926492,
+   "ok": true
+  },
+  {
+   "name": "gdn output",
+   "rel_err": 2.6880834980147483e-7,
+   "ok": true
+  },
+  {
+   "name": "gdn state",
+   "rel_err": 1.9177130639036477e-7,
+   "ok": true
+  },
+  {
+   "name": "attention",
+   "rel_err": 1.4513425128370727e-7,
+   "ok": true
+  },
+  {
+   "name": "embed",
+   "rel_err": 0,
+   "ok": true
+  },
+  {
+   "name": "argmax -> 123457 pos 42",
+   "rel_err": 0,
+   "ok": true
+  }
+ ],
+ "dispatch_us": 4.8175,
+ "gemv": [
+  {
+   "name": "gdn in-proj",
+   "rows": 8224,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4
+   },
+   "ms": 0.46333333333333326,
+   "gb_per_s": 9.655804316546764
+  },
+  {
+   "name": "attention in-proj",
+   "rows": 5120,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 8,
+    "rpw": 8,
+    "rpt": 4
+   },
+   "ms": 0.27299999999999996,
+   "gb_per_s": 10.202490842490842
+  },
+  {
+   "name": "out-proj",
+   "rows": 1024,
+   "k": 2048,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 1
+   },
+   "ms": 0.1675,
+   "gb_per_s": 6.651414925373134
+  },
+  {
+   "name": "mlp gate+up (swiglu)",
+   "rows": 7168,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 8,
+    "rpw": 16,
+    "rpt": 1
+   },
+   "ms": 0.5195,
+   "gb_per_s": 7.50604812319538
+  },
+  {
+   "name": "mlp down",
+   "rows": 1024,
+   "k": 3584,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 1
+   },
+   "ms": 0.4703333333333333,
+   "gb_per_s": 4.145349397590361
+  },
+  {
+   "name": "lm head",
+   "rows": 248320,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4,
+    "rpt": 4
+   },
+   "ms": 8.889,
+   "gb_per_s": 15.196994037574532
+  }
+ ],
+ "gdn_layer_ms": 0.23916666666666667,
+ "attention_layer_ms": 0.6359999999999999,
+ "weight_mb": 399.443968,
+ "dispatches_per_token": 173,
+ "tokens": [
+  {
+   "window": 1,
+   "ms_per_token": 45.4246875,
+   "tokens_per_s": 22.014460748904437
+  },
+  {
+   "window": 4,
+   "ms_per_token": 44.67703125,
+   "tokens_per_s": 22.382865916141196
+  }
+ ]
+}

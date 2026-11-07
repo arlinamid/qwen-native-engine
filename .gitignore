@@ -1,0 +1,8 @@
+/target
+/.toolchain
+/node_modules
+/models
+/web/pkg
+/web/kpkg
+.claude/settings.local.json
+/results/reference_*.json

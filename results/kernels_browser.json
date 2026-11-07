@@ -1,0 +1,158 @@
+{
+ "adapter": " (Other, driver )",
+ "backend": "BrowserWebGpu",
+ "shader_f16": true,
+ "checks": [
+  {
+   "name": "gemv Store",
+   "rel_err": 7.771286618662998e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv Accumulate",
+   "rel_err": 5.766082153968455e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv SwiGlu",
+   "rel_err": 6.836171451141126e-7,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Store",
+   "rel_err": 0.00042994917021133006,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 Accumulate",
+   "rel_err": 0.0006996963056735694,
+   "ok": true
+  },
+  {
+   "name": "gemv f16 SwiGlu",
+   "rel_err": 0.0010074680903926492,
+   "ok": true
+  },
+  {
+   "name": "gdn output",
+   "rel_err": 2.6880834980147483e-7,
+   "ok": true
+  },
+  {
+   "name": "gdn state",
+   "rel_err": 1.9177130639036477e-7,
+   "ok": true
+  },
+  {
+   "name": "attention",
+   "rel_err": 1.4513425128370727e-7,
+   "ok": true
+  },
+  {
+   "name": "embed",
+   "rel_err": 0,
+   "ok": true
+  },
+  {
+   "name": "argmax -> 123457 pos 42",
+   "rel_err": 0,
+   "ok": true
+  }
+ ],
+ "dispatch_us": 4.995,
+ "gemv": [
+  {
+   "name": "gdn in-proj",
+   "rows": 8224,
+   "k": 1024,
+   "tile": {
+    "f16": false,
+    "tpr": 8,
+    "rpw": 8
+   },
+   "ms": 0.47533333333333333,
+   "gb_per_s": 9.412039270687236
+  },
+  {
+   "name": "attention in-proj",
+   "rows": 5120,
+   "k": 1024,
+   "tile": {
+    "f16": false,
+    "tpr": 8,
+    "rpw": 8
+   },
+   "ms": 0.332,
+   "gb_per_s": 8.389397590361446
+  },
+  {
+   "name": "out-proj",
+   "rows": 1024,
+   "k": 2048,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 4
+   },
+   "ms": 0.15933333333333335,
+   "gb_per_s": 6.992334728033472
+  },
+  {
+   "name": "mlp gate+up (swiglu)",
+   "rows": 7168,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 16,
+    "rpw": 4
+   },
+   "ms": 0.44116666666666665,
+   "gb_per_s": 8.838818284850774
+  },
+  {
+   "name": "mlp down",
+   "rows": 1024,
+   "k": 3584,
+   "tile": {
+    "f16": false,
+    "tpr": 16,
+    "rpw": 4
+   },
+   "ms": 0.3186666666666667,
+   "gb_per_s": 6.1182928870292885
+  },
+  {
+   "name": "lm head",
+   "rows": 248320,
+   "k": 1024,
+   "tile": {
+    "f16": true,
+    "tpr": 8,
+    "rpw": 16
+   },
+   "ms": 13.672999999999998,
+   "gb_per_s": 9.87976888758868
+  }
+ ],
+ "gdn_layer_ms": 0.2826666666666667,
+ "attention_layer_ms": 0.7311666666666666,
+ "weight_mb": 399.443968,
+ "dispatches_per_token": 173,
+ "tokens": [
+  {
+   "window": 1,
+   "ms_per_token": 59.92484375,
+   "tokens_per_s": 16.687569585861457
+  },
+  {
+   "window": 4,
+   "ms_per_token": 50.0703125,
+   "tokens_per_s": 19.971914495241066
+  },
+  {
+   "window": 8,
+   "ms_per_token": 50.65640625,
+   "tokens_per_s": 19.74083978766259
+  }
+ ]
+}

@@ -87,7 +87,8 @@ function matches(call, expected) {
   if (call.name !== expected.name) return false;
   const args = call.arguments ?? {};
   for (const [key, value] of Object.entries(expected.args ?? {})) {
-    if (args[key] !== value) return false;
+    const actual = key === 'expression' ? String(args[key]).replace(/\s+/g, '') : args[key];
+    if (actual !== value) return false;
   }
   for (const [key, part] of Object.entries(expected.contains ?? {})) {
     if (!String(args[key] ?? '').toLowerCase().includes(String(part).toLowerCase())) return false;
@@ -104,15 +105,21 @@ export function scoreCase(testCase, outcome) {
   const expected = testCase.expected;
   const toolsRight = calls.length === expected.length && expected.every((e, i) => calls[i].name === e.name);
   const clean = outcome.parse_errors === 0 && calls.every((c) => !c.error);
-  const pass = clean && toolsRight && expected.every((e, i) => matches(calls[i], e));
-  return { toolsRight, pass };
+  const argumentsRight = toolsRight && expected.every((e, i) => matches(calls[i], e));
+  const completed = outcome.finished === true && typeof outcome.answer === 'string' && outcome.answer.trim().length > 0;
+  const answerChecked = Array.isArray(testCase.answer_contains) && testCase.answer_contains.length > 0;
+  const answerRight = answerChecked && testCase.answer_contains.every(text => outcome.answer?.toLowerCase().includes(String(text).toLowerCase()));
+  // A tool-routing-only case is not an end-to-end pass without an answer oracle.
+  const routingPass = clean && argumentsRight && completed;
+  const pass = !routingPass ? false : answerChecked ? answerRight : null;
+  return { toolsRight, argumentsRight, completed, answerChecked, answerRight, routingPass, pass };
 }
 
 export function summarize(rows) {
   const group = (filter) => {
     const part = rows.filter(filter);
     const count = (key) => part.filter((r) => r[key]).length;
-    return { n: part.length, tools_right: count('toolsRight'), pass: count('pass') };
+    return { n: part.length, tools_right: count('toolsRight'), routing_pass: count('routingPass'), answer_checked: count('answerChecked'), pending_review: part.filter(r => r.pass === null).length, pass: count('pass') };
   };
   const invalid = rows.reduce((sum, r) => sum + r.parseErrors + r.invalidCalls, 0);
   return {

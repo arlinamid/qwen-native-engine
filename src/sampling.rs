@@ -16,12 +16,16 @@ pub struct SamplingOptions {
     /// suggests 1.5-2 against endless repetition. Not applied under a grammar mask, where
     /// repeating a token (a digit in an argument) can be exactly right.
     pub presence_penalty: f32,
+    /// Added to the `<tool_call>` logit before sampling, while decoding is still free text.
+    /// Positive makes a call more likely; negative steers the model to answer instead.
+    #[serde(default)]
+    pub tool_call_bias: f32,
 }
 
 impl Default for SamplingOptions {
     /// Temperature, top-k and top-p follow the model's `generation_config.json`.
     fn default() -> Self {
-        Self { temperature: 0.6, top_k: 20, top_p: 0.95, seed: 42, presence_penalty: 0.0 }
+        Self { temperature: 0.6, top_k: 20, top_p: 0.95, seed: 42, presence_penalty: 0.0, tool_call_bias: 0.0 }
     }
 }
 
@@ -50,6 +54,18 @@ impl Sampler {
     }
 
     /// `mask` comes from the grammar; tokens outside it are never chosen.
+    /// Fails closed instead of producing token zero for an impossible distribution.
+    pub fn try_sample(&mut self, logits: &[f32], mask: Option<&SimpleVob>) -> anyhow::Result<u32> {
+        let mut finite = false;
+        for (i, &value) in logits.iter().enumerate() {
+            if mask.is_some_and(|m| i >= m.len() || !m.is_allowed(i as u32)) { continue; }
+            if value.is_nan() || value == f32::INFINITY { anyhow::bail!("non-finite model logits"); }
+            finite |= value.is_finite();
+        }
+        if !finite { anyhow::bail!("no finite token is allowed by the sampling mask"); }
+        Ok(self.sample(logits, mask))
+    }
+
     pub fn sample(&mut self, logits: &[f32], mask: Option<&SimpleVob>) -> u32 {
         let token = self.choose(logits, mask);
         if self.opts.presence_penalty != 0.0 {
@@ -123,6 +139,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn impossible_and_corrupt_distributions_are_errors() {
+        let mut sampler = Sampler::new(SamplingOptions::default());
+        let empty = SimpleVob::alloc(2);
+        assert!(sampler.try_sample(&[1.0,2.0],Some(&empty)).is_err());
+        assert!(sampler.try_sample(&[f32::NAN],None).is_err());
+        assert!(sampler.try_sample(&[f32::NEG_INFINITY],None).is_err());
+        assert!(sampler.try_sample(&[],None).is_err());
+    }
+
+    #[test]
     fn greedy_picks_max_and_respects_mask() {
         let logits = [0.0, 3.0, 1.0, 2.0];
         let mut s = Sampler::new(SamplingOptions { temperature: 0.0, ..Default::default() });
@@ -154,6 +180,19 @@ mod tests {
         };
         assert_eq!(draw(1), draw(1));
         assert_ne!(draw(1), draw(2));
+    }
+
+    #[test]
+    fn tool_call_bias_flips_greedy_when_added_to_logits() {
+        let mut logits = [1.0, 3.0, 0.0];
+        let mut s = Sampler::new(SamplingOptions { temperature: 0.0, ..Default::default() });
+        assert_eq!(s.sample(&logits, None), 1);
+        logits[0] += 4.0;
+        let mut s = Sampler::new(SamplingOptions { temperature: 0.0, ..Default::default() });
+        assert_eq!(s.sample(&logits, None), 0);
+        logits[0] -= 12.0;
+        let mut s = Sampler::new(SamplingOptions { temperature: 0.0, ..Default::default() });
+        assert_eq!(s.sample(&logits, None), 1);
     }
 
     #[test]

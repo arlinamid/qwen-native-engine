@@ -1,4 +1,4 @@
-"""Converts the onnx-community Qwen3.5-0.8B q4f16 export into the native engine's weight file.
+"""Converts the onnx-community Qwen3.5 0.8B/2B q4f16 export into the native engine's weight file.
 
 The 4-bit matrices (MatMulNBits / GatherBlockQuantized, block size 32, per-block f16 scale and
 4-bit zero point) are already in the layout the kernels read, so they are copied byte for byte.
@@ -6,7 +6,7 @@ Projections that run back to back are concatenated along their rows:
 
   GDN layers:       q, k, v (6144) + z (2048) + a (16) + b (16)  -> one 8224-row matrix
   attention layers: q (2048) + gate (2048) + k (512) + v (512)   -> one 5120-row matrix
-  MLP:              gate (3584) + up (3584)                      -> one 7168-row matrix
+  MLP:              gate + up, with width 3584 (0.8B) / 6144 (2B)
 
 The export interleaves each attention head's query and gate rows (512 per head); they are
 reordered to all query heads first, then all gates.
@@ -15,6 +15,8 @@ Run with: python -I scripts/convert_weights.py
 Writes models/qwen3.5-0.8b/native/weights.bin and index.json.
 """
 import json
+import argparse
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -22,9 +24,6 @@ import onnx
 from onnx import numpy_helper
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "models" / "qwen3.5-0.8b" / "onnx"
-OUT = ROOT / "models" / "qwen3.5-0.8b" / "native"
-LAYERS, FULL_EVERY = 24, 4
 ALIGN = 256
 
 
@@ -38,13 +37,19 @@ class Writer:
         self.file = open(path, "wb")
         self.offset = 0
         self.index = {}
+        self.content = {}
 
     def add(self, name, array, kind):
         data = np.ascontiguousarray(array).tobytes()
+        digest = (kind, tuple(array.shape), hashlib.sha256(data).digest())
+        if digest in self.content:
+            self.index[name] = dict(self.content[digest])
+            return
         pad = (-self.offset) % ALIGN
         self.file.write(b"\0" * pad)
         self.offset += pad
         self.index[name] = {"offset": self.offset, "bytes": len(data), "kind": kind, "shape": list(array.shape)}
+        self.content[digest] = self.index[name]
         self.file.write(data)
         self.offset += len(data)
 
@@ -77,14 +82,33 @@ def interleaved_heads_to_split(part, heads, head_dim):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Convert Qwen3.5 0.8B/2B q4f16 ONNX to native kernels")
+    parser.add_argument("--model-dir", type=Path, default=ROOT / "models/qwen3.5-0.8b")
+    parser.add_argument("--source-revision", default="unknown")
+    args = parser.parse_args()
+    model_dir = args.model_dir.resolve()
+    SRC, OUT = model_dir / "onnx", model_dir / "native"
+    config = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    config = config.get("text_config", config)
+    required = {"num_hidden_layers":24,"full_attention_interval":4,"num_attention_heads":8,
+                "num_key_value_heads":2,"head_dim":256,"linear_num_key_heads":16,
+                "linear_num_value_heads":16,"linear_key_head_dim":128,"linear_value_head_dim":128,
+                "linear_conv_kernel_dim":4,"vocab_size":248320}
+    for key, value in required.items():
+        if config.get(key) != value:
+            raise ValueError(f"unsupported architecture: {key}={config.get(key)}, expected {value}")
+    hidden, intermediate = config["hidden_size"], config["intermediate_size"]
+    if (hidden, intermediate) not in ((1024,3584),(2048,6144)):
+        raise ValueError("only Qwen3.5-0.8B and Qwen3.5-2B shapes are supported")
+    LAYERS, FULL_EVERY = 24, 4
     decoder, d = load(SRC / "decoder_model_merged_q4f16.onnx")
     _, e = load(SRC / "embed_tokens_q4f16.onnx")
     final_norm = next(n.input[2] for n in decoder.graph.node if n.name.endswith("final_norm_layernorm/SkipLayerNorm"))
 
     OUT.mkdir(parents=True, exist_ok=True)
-    w = Writer(OUT / "weights.bin")
+    w = Writer(OUT / "weights.bin.tmp")
     shapes = {}
-    shapes["embed"] = w.add_qmat("embed", [(e["model_embed_tokens_weight_quant"].reshape(-1, 32, 16), e["model_embed_tokens_weight_scales"], e["model_embed_tokens_weight_zp"])])
+    shapes["embed"] = w.add_qmat("embed", [(e["model_embed_tokens_weight_quant"].reshape(-1, hidden // 32, 16), e["model_embed_tokens_weight_scales"], e["model_embed_tokens_weight_zp"])])
     for i in range(LAYERS):
         p = f"model_layers_{i}"
         dot = f"model.layers.{i}"
@@ -108,13 +132,18 @@ def main():
     w.file.close()
 
     index = {
-        "source": "onnx-community/Qwen3.5-0.8B-ONNX q4f16",
-        "config": {"layers": LAYERS, "full_attention_every": FULL_EVERY, "hidden": 1024, "vocab": 248320, "rope_theta": 10000000.0, "rope_dim": 64},
+        "source": f"{model_dir.name} ONNX q4f16",
+        "source_revision": args.source_revision,
+        "format_version": 1,
+        "config": {"layers": LAYERS, "full_attention_every": FULL_EVERY, "hidden": hidden, "intermediate": intermediate, "vocab": 248320, "rope_theta": 10000000.0, "rope_dim": 64},
         "matrices": shapes,
         "tensors": w.index,
     }
-    (OUT / "index.json").write_text(json.dumps(index, indent=1))
+    (OUT / "index.json.tmp").write_text(json.dumps(index, indent=1), encoding="utf-8")
+    (OUT / "weights.bin.tmp").replace(OUT / "weights.bin")
+    (OUT / "index.json.tmp").replace(OUT / "index.json")
     print(f"wrote {w.offset / 1e6:.0f} MB, {len(w.index)} tensors to {OUT}")
 
 
-main()
+if __name__ == "__main__":
+    main()

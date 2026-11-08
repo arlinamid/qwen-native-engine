@@ -101,7 +101,7 @@ impl Icons {
             "mcp_guide" => "🧭",
             "port" => "🔢",
             "auto_approve" => "🔓",
-            "thinking" => "💭",
+            "thinking" | "thinking_mode" => "💭",
             "temperature" => "🎲",
             "presence_penalty" => "🔁",
             "max_steps" => "👣",

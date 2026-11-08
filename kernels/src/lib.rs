@@ -29,14 +29,15 @@ const GDN_HEADS: u32 = 16;
 const ATTN_HEADS: u32 = 8;
 const ARGMAX_GROUPS: u32 = VOCAB.div_ceil(1024);
 const TILES: [(u32, u32); 8] = [(8, 8), (16, 4), (16, 8), (16, 16), (32, 4), (32, 8), (64, 2), (64, 4)];
-const TILES_F16: [(u32, u32, u32); 12] = [
+const TILES_F16: [(u32, u32, u32); 18] = [
     (8, 8, 1), (8, 16, 1), (16, 8, 1), (16, 16, 1),
     (8, 8, 2), (8, 16, 2), (16, 8, 2), (4, 32, 2),
     (8, 8, 4), (8, 16, 4), (16, 4, 4), (4, 32, 4),
+    (2, 32, 2), (2, 32, 4), (1, 32, 4), (4, 32, 8), (4, 16, 8), (8, 8, 8),
 ];
 
 /// A GEMV kernel choice: the plain f32 kernel or the f16 one, and its tile shape.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tile {
     pub f16: bool,
     pub tpr: u32,
@@ -155,6 +156,7 @@ impl QMat {
 
 #[derive(Clone)]
 struct Dispatch {
+    label: String,
     pipeline: wgpu::ComputePipeline,
     bind: wgpu::BindGroup,
     groups: (u32, u32),
@@ -186,6 +188,11 @@ fn groups_for(n: u32) -> (u32, u32) {
 impl Gpu {
     async fn new(allow_f16: bool, dxc: Option<&str>) -> Result<(Self, String, String)> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        // Intel UHD 630's Vulkan driver may crash even during adapter enumeration.
+        // Keep explicit WGPU_BACKEND overrides for diagnostics and other devices.
+        if cfg!(windows) && std::env::var_os("WGPU_BACKEND").is_none() {
+            desc.backends = wgpu::Backends::DX12;
+        }
         if let Some(path) = dxc {
             desc.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::DynamicDxc { dxc_path: path.to_string() };
         }
@@ -196,7 +203,12 @@ impl Gpu {
             .context("no GPU adapter")?;
         let info = adapter.get_info();
         let f16 = allow_f16 && adapter.features().contains(wgpu::Features::SHADER_F16);
-        let required_features = if f16 { wgpu::Features::SHADER_F16 } else { wgpu::Features::empty() };
+        let mut required_features = if f16 { wgpu::Features::SHADER_F16 } else { wgpu::Features::empty() };
+        if std::env::var_os("QWEN_GPU_PROFILE").is_some() {
+            let timestamps = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES;
+            anyhow::ensure!(adapter.features().contains(timestamps), "GPU does not support per-dispatch timestamps");
+            required_features |= timestamps;
+        }
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor { label: Some("decode"), required_features, required_limits: adapter.limits(), ..Default::default() })
             .await?;
@@ -310,8 +322,8 @@ impl Gpu {
             let reduce_params = self.uniform([out_rows, m.rows, out_rows, 0]);
             let reduce_bind = self.bind(&reduce, &[&partial, y, &reduce_params]);
             return vec![
-                Dispatch { pipeline: partial_pipeline, bind, groups: groups_for(m.rows.div_ceil(rpw * rpt) * splits) },
-                Dispatch { pipeline: reduce, bind: reduce_bind, groups: (out_rows.div_ceil(64), 1) },
+                Dispatch { label: format!("gemv_split_{}x{k}", m.rows), pipeline: partial_pipeline, bind, groups: groups_for(m.rows.div_ceil(rpw * rpt) * splits) },
+                Dispatch { label: "split_reduce".into(), pipeline: reduce, bind: reduce_bind, groups: (out_rows.div_ceil(64), 1) },
             ];
         }
         let pipeline = if f16 {
@@ -322,7 +334,7 @@ impl Gpu {
         let rows = if epilogue == Epilogue::SwiGlu { m.rows / 2 } else { m.rows };
         let params = self.uniform([rows, m.k, rows, 0]);
         let bind = self.bind(&pipeline, &[&m.w, &m.s, x, y, &params, &m.z]);
-        vec![Dispatch { pipeline, bind, groups: groups_for(rows.div_ceil(rpw * rpt)) }]
+        vec![Dispatch { label: format!("gemv_{}x{k}_{epilogue:?}",m.rows), pipeline, bind, groups: groups_for(rows.div_ceil(rpw * rpt)) }]
     }
 
     /// Batched 4-bit matrix product over the chunk described by `chunk` ([pos0, count]).
@@ -331,13 +343,13 @@ impl Gpu {
         let rows = if epilogue == Epilogue::SwiGlu { m.rows / 2 } else { m.rows };
         let params = self.uniform([rows, m.k, rows, 0]);
         let bind = self.bind(&pipeline, &[&m.w, &m.s, x, y, &params, &m.z, chunk]);
-        Dispatch { pipeline, bind, groups: groups_for(rows.div_ceil(64)) }
+        Dispatch { label: "gemm".into(), pipeline, bind, groups: groups_for(rows.div_ceil(64)) }
     }
 
-    fn simple(&mut self, key: &str, source: fn() -> String, buffers: &[&wgpu::Buffer], groups: u32) -> Dispatch {
+    fn simple(&mut self, key: &str, source: impl FnOnce() -> String, buffers: &[&wgpu::Buffer], groups: u32) -> Dispatch {
         let pipeline = self.pipeline(key, source);
         let bind = self.bind(&pipeline, buffers);
-        Dispatch { pipeline, bind, groups: (groups, 1) }
+        Dispatch { label: key.into(), pipeline, bind, groups: (groups, 1) }
     }
 
     fn encode(&self, encoder: &mut wgpu::CommandEncoder, dispatches: &[Dispatch], repeat: u32) {
@@ -351,9 +363,45 @@ impl Gpu {
         }
     }
 
-    fn poll(&self) {
+    /// Diagnostic only: timestamps can perturb scheduling, so never use these as end-to-end throughput.
+    async fn profile(&self, dispatches: &[Dispatch]) -> Result<std::collections::BTreeMap<String, f64>> {
+        anyhow::ensure!(self.device.features().contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES), "set QWEN_GPU_PROFILE before loading the model");
+        let count = dispatches.len() as u32 + 1;
+        let queries = self.device.create_query_set(&wgpu::QuerySetDescriptor { label: None, ty: wgpu::QueryType::Timestamp, count });
+        let resolved = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None, size: u64::from(count)*8, mapped_at_creation: false,
+            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None, timestamp_writes: None });
+            for (i,d) in dispatches.iter().enumerate() {
+                pass.write_timestamp(&queries,i as u32);
+                pass.set_pipeline(&d.pipeline);
+                pass.set_bind_group(0,&d.bind,&[]);
+                pass.dispatch_workgroups(d.groups.0,d.groups.1,1);
+            }
+            pass.write_timestamp(&queries,count-1);
+        }
+        self.device.poll(wgpu::PollType::Poll).map_err(|e| anyhow!("GPU poll failed: {e}"))?;
+        encoder.resolve_query_set(&queries,0..count,&resolved,0);
+        self.queue.submit([encoder.finish()]);
+        let bytes = self.read(&resolved,u64::from(count)*8).await?;
+        let ticks: Vec<u64> = bytes.chunks_exact(8).map(|c|u64::from_le_bytes(c.try_into().unwrap())).collect();
+        let mut times = std::collections::BTreeMap::new();
+        for (i,d) in dispatches.iter().enumerate() {
+            *times.entry(d.label.clone()).or_insert(0.0) += ticks[i+1].saturating_sub(ticks[i]) as f64 * self.queue.get_timestamp_period() as f64 / 1e6;
+        }
+        Ok(times)
+    }
+
+    fn poll(&self) -> Result<()> {
         #[cfg(not(target_arch = "wasm32"))]
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+        }).map_err(|e| anyhow!("GPU wait failed: {e}"))?;
+        Ok(())
     }
 
     async fn idle(&self) -> Result<()> {
@@ -361,7 +409,7 @@ impl Gpu {
         self.queue.on_submitted_work_done(move || {
             let _ = tx.send(());
         });
-        self.poll();
+        self.poll()?;
         rx.await.map_err(|_| anyhow!("GPU queue closed"))
     }
 
@@ -411,7 +459,7 @@ async fn map_read(gpu: &Gpu, staging: &wgpu::Buffer) -> Result<Vec<u8>> {
     slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = tx.send(r);
     });
-    gpu.poll();
+    if let Err(error) = gpu.poll() { staging.unmap(); return Err(error); }
     rx.await.map_err(|_| anyhow!("map cancelled"))??;
     let data = staging.get_mapped_range(..)?.to_vec();
     staging.unmap();
@@ -585,9 +633,13 @@ async fn check_attention(gpu: &mut Gpu, rng: &mut Rng) -> Result<Check> {
     let cache_len = 2 * MAX_CONTEXT as usize * 256;
     let kc: Vec<f32> = (0..cache_len).map(|_| rng.f32()).collect();
     let vc: Vec<f32> = (0..cache_len).map(|_| rng.f32()).collect();
+    let mut transposed_kc = vec![0.0; cache_len];
+    for h in 0..2 { for l in 0..MAX_CONTEXT as usize { for j in 0..256 {
+        transposed_kc[((h*MAX_CONTEXT as usize/32+l/32)*256+j)*32+l%32] = kc[(h*MAX_CONTEXT as usize+l)*256+j];
+    } } }
     let tok = [0u32, pos as u32, 0, 0];
     let prm: Vec<f32> = (0..512).map(|_| 1.0 + rng.f32() * 0.5).collect();
-    let bufs = [gpu.upload(&proj), gpu.upload(&kc), gpu.upload(&vc), gpu.upload(&tok), gpu.storage(u64::from(MIXER_OUT) * 4), gpu.upload(&prm)];
+    let bufs = [gpu.upload(&proj), gpu.upload(&transposed_kc), gpu.upload(&vc), gpu.upload(&tok), gpu.storage(u64::from(MIXER_OUT) * 4), gpu.upload(&prm)];
     let d = gpu.simple("attention", shaders::attention, &[&bufs[0], &bufs[1], &bufs[2], &bufs[3], &bufs[4], &bufs[5]], ATTN_HEADS);
     gpu.submit(&[d]);
     let got = gpu.read_f32(&bufs[4], MIXER_OUT as usize).await?;
@@ -683,7 +735,10 @@ async fn tune_gemv(gpu: &mut Gpu, name: &str, rows: u32, k: u32, epilogue: Epilo
         let d = gpu.gemv(&m, &x, &y, epilogue, tile);
         gpu.time(&d, 3).await?;
         let repeat = if rows > 100_000 { 5 } else { 30 };
-        let ms = gpu.time(&d, repeat).await? / f64::from(repeat);
+        let mut samples = [0.0f64; 3];
+        for sample in &mut samples { *sample = gpu.time(&d, repeat).await? / f64::from(repeat); }
+        samples.sort_by(f64::total_cmp);
+        let ms = samples[1];
         if ms < best.0 {
             best = (ms, tile);
         }

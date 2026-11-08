@@ -1,0 +1,44 @@
+{
+  "gdn_in": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 32,
+    "rpt": 4,
+    "splits": 1
+  },
+  "attn_in": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 32,
+    "rpt": 4,
+    "splits": 1
+  },
+  "out": {
+    "f16": true,
+    "tpr": 8,
+    "rpw": 16,
+    "rpt": 4,
+    "splits": 1
+  },
+  "gate_up": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 32,
+    "rpt": 2,
+    "splits": 1
+  },
+  "down": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 32,
+    "rpt": 2,
+    "splits": 1
+  },
+  "lm_head": {
+    "f16": true,
+    "tpr": 4,
+    "rpw": 32,
+    "rpt": 4,
+    "splits": 1
+  }
+}

@@ -282,7 +282,7 @@ mod native {
         let mut times = Times::default();
         let t1 = Instant::now();
         while out.len() < max_new {
-            let token = sampler.sample(&model.logits, None);
+            let token = sampler.try_sample(&model.logits, None)?;
             if stop.contains(&token) {
                 break;
             }
@@ -310,7 +310,7 @@ mod native {
         let mut out = Vec::new();
         let mut pos = ids.len();
         while out.len() < n {
-            let token = sampler.sample(&model.logits, None);
+            let token = sampler.try_sample(&model.logits, None)?;
             out.push(token);
             if stop.contains(&token) || out.len() == n {
                 break;

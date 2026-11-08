@@ -78,9 +78,10 @@ fn parse_call(block: &str, tools: &[Value]) -> Result<ToolCall, String> {
         let value_end = value_start.find(PARAMETER_END).ok_or_else(|| format!("unterminated parameter '{key}'"))?;
         let raw = value_start[..value_end].strip_prefix('\n').unwrap_or(&value_start[..value_end]);
         let raw = raw.strip_suffix('\n').unwrap_or(raw);
-        args.insert(key.to_string(), coerce(raw, schema, key));
+        if args.insert(key.to_string(), coerce(raw, schema, key)).is_some() { return Err(format!("duplicate parameter {key}")); }
         rest = &value_start[value_end + PARAMETER_END.len()..];
     }
+    if !rest.trim_end().ends_with("</function>") { return Err("missing </function>".into()); }
     Ok(ToolCall { name, arguments: Value::Object(args) })
 }
 
@@ -94,7 +95,7 @@ fn coerce(raw: &str, schema: Option<&Value>, key: &str) -> Value {
         .and_then(Value::as_str);
     let text = raw.trim();
     let parsed = match declared {
-        Some("number" | "integer" | "boolean" | "array" | "object") => serde_json::from_str::<Value>(text).ok(),
+        Some("number" | "integer" | "boolean" | "array" | "object" | "null") => serde_json::from_str::<Value>(text).ok(),
         _ => None,
     };
     parsed.filter(|v| declared.is_some_and(|d| type_matches(d, v))).unwrap_or_else(|| Value::String(raw.to_string()))
@@ -132,31 +133,8 @@ pub fn validate_call(call: &ToolCall, tools: &[Value]) -> Result<(), String> {
         .find(|t| tool_name(t) == call.name)
         .ok_or_else(|| format!("unknown tool '{}'", call.name))?;
     let Some(params) = tool_parameters(tool) else { return Ok(()) };
-    let args = call.arguments.as_object().ok_or("arguments must be an object")?;
-    let props = params.get("properties").and_then(Value::as_object);
-
-    if let Some(required) = params.get("required").and_then(Value::as_array) {
-        for key in required.iter().filter_map(Value::as_str) {
-            if !args.contains_key(key) {
-                return Err(format!("missing required argument '{key}'"));
-            }
-        }
-    }
-    let Some(props) = props else { return Ok(()) };
-    for (key, value) in args {
-        let schema = props.get(key).ok_or_else(|| format!("unknown argument '{key}'"))?;
-        if let Some(ty) = schema.get("type").and_then(Value::as_str) {
-            if !type_matches(ty, value) {
-                return Err(format!("argument '{key}' must be of type {ty}"));
-            }
-        }
-        if let Some(allowed) = schema.get("enum").and_then(Value::as_array) {
-            if !allowed.contains(value) {
-                return Err(format!("argument '{key}' must be one of {allowed:?}"));
-            }
-        }
-    }
-    Ok(())
+    if !call.arguments.is_object() { return Err("arguments must be an object".into()); }
+    crate::schema::validate(params, &call.arguments)
 }
 
 #[cfg(test)]
@@ -168,7 +146,7 @@ mod tests {
         vec![json!({"type":"function","function":{"name":"set_timer","parameters":{
             "type":"object",
             "properties":{"minutes":{"type":"number"},"unit":{"type":"string","enum":["a","b"]},"note":{"type":"string"}},
-            "required":["minutes"]}}})]
+            "required":["minutes"],"additionalProperties":false}}})]
     }
 
     #[test]

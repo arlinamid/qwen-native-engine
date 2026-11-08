@@ -13,6 +13,9 @@ import argparse
 import datetime
 import json
 import math
+import os
+import ipaddress
+import socket
 import re
 import sys
 import urllib.parse
@@ -32,7 +35,8 @@ PAGE_CHARS = 1500
 parser = argparse.ArgumentParser()
 parser.add_argument("--lang", default="en")
 parser.add_argument("--notes", default=None)
-OPTIONS = parser.parse_args()
+parser.add_argument("--allow-private-network", action="store_true", help="Allow read_page to reach LAN/loopback URLs")
+OPTIONS = parser.parse_args() if __name__ == "__main__" else parser.parse_args([])
 NOTES = Path(OPTIONS.notes).resolve() if OPTIONS.notes else None
 
 LANG = {"type": "string", "description": f"Language code such as hu or en (default: {OPTIONS.lang} for a query with accented letters, else en)"}
@@ -65,10 +69,29 @@ if NOTES is not None:
     })
 
 
+def check_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("only HTTP(S) URLs without credentials are allowed")
+    if not OPTIONS.allow_private_network:
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
+            raise ValueError("private network URL blocked; use --allow-private-network only for trusted local sources")
+
+
+class CheckedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch(url, timeout=15):
+    check_url(url)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = response.read(3_000_000)
+    with urllib.request.build_opener(CheckedRedirect()).open(request, timeout=timeout) as response:
+        data = response.read(3_000_001)
+        if len(data) > 3_000_000:
+            raise ValueError("page exceeds 3 MB download limit")
         charset = response.headers.get_content_charset()
         return data, charset, response.headers.get_content_type()
 
@@ -234,28 +257,61 @@ def words(text):
     return [stem(w) for w in re.findall(r"\w+", text.lower()) if len(w) > 1]
 
 
+_notes_cache = (None, None)
+
+
+def note_passages():
+    global _notes_cache
+    if NOTES is None:
+        raise ValueError("notes folder is not configured")
+    files, visited, total = [], 0, 0
+    for folder, dirs, names in os.walk(NOTES, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(("_", ".")) and not (Path(folder) / d).is_symlink())
+        visited += len(dirs) + len(names)
+        if visited > 10000:
+            raise ValueError("notes directory exceeds 10000-entry scan limit")
+        for name in sorted(names):
+            path = Path(folder) / name
+            if name.startswith(("_", ".")) or path.suffix.lower() not in (".md", ".txt") or path.is_symlink():
+                continue
+            if not path.resolve().is_relative_to(NOTES):
+                raise ValueError("notes path escapes configured folder")
+            stat = path.stat()
+            total += stat.st_size
+            if stat.st_size > 262144 or total > 8388608 or len(files) >= 512:
+                raise ValueError("notes limit exceeded: 512 files, 256 KiB/file, 8 MiB total")
+            files.append((path, stat.st_mtime_ns, stat.st_size))
+    signature = (str(NOTES), tuple(files))
+    if _notes_cache[0] == signature:
+        return _notes_cache[1]
+    passages = []
+    for path, _, _ in files:
+        with path.open("r", encoding="utf-8", errors="replace") as source:
+            text = source.read(262145)
+        if len(text) > 262144:
+            raise ValueError("notes file grew beyond read limit")
+        # Fixed bounded chunks avoid an unbounded paragraph or a single giant index row.
+        for start in range(0, len(text), 1000):
+            chunk = text[start:start + 1000].strip()
+            if chunk and words(chunk):
+                passages.append((path, chunk))
+                if len(passages) > 8192:
+                    raise ValueError("notes passage limit exceeded")
+    docs = [Counter(words(text)) for _, text in passages]
+    avg = sum(sum(d.values()) for d in docs) / len(docs) if docs else 0
+    df = Counter(w for d in docs for w in d)
+    _notes_cache = (signature, (passages, docs, avg, df))
+    return _notes_cache[1]
+
+
 def search_notes(args):
     query = words(str(args.get("query", "")))
     if not query:
         raise ValueError("query is empty")
-    files = [p for p in sorted(NOTES.rglob("*")) if p.suffix.lower() in (".md", ".txt") and not any(s.startswith(("_", ".")) for s in p.relative_to(NOTES).parts)]
-    if not files:
-        return f"The notes folder is empty; the user can put .md or .txt files into {NOTES}."
-    passages = []
-    for path in files:
-        text = path.read_text(encoding="utf-8", errors="replace")
-        chunk = ""
-        for para in re.split(r"\n\s*\n", text):
-            chunk = f"{chunk}\n\n{para}".strip() if len(chunk) < 400 else para
-            if len(chunk) >= 400:
-                passages.append((path, chunk))
-                chunk = ""
-        if chunk:
-            passages.append((path, chunk))
+    passages, docs, avg, df = note_passages()
+    if not docs or not avg:
+        return "The notes folder contains no searchable text."
     # BM25 over passages.
-    docs = [Counter(words(text)) for _, text in passages]
-    avg = sum(sum(d.values()) for d in docs) / len(docs)
-    df = Counter(w for d in docs for w in set(d))
     scores = []
     for i, d in enumerate(docs):
         length = sum(d.values())
@@ -307,11 +363,25 @@ def result_for(message):
 def main():
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    for line in sys.stdin:
-        line = line.strip()
+    while True:
+        line = sys.stdin.buffer.readline(1_048_577)
         if not line:
+            break
+        if len(line) > 1_048_576:
+            print("MCP input frame exceeds 1 MiB", file=sys.stderr)
+            break
+        if not line.strip():
             continue
-        message = json.loads(line)
+        try:
+            message = json.loads(line)
+            if not isinstance(message, dict) or message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
+                raise ValueError("invalid JSON-RPC request")
+            if not isinstance(message.get("params", {}), dict):
+                raise ValueError("params must be an object")
+        except (ValueError, UnicodeError) as error:
+            sys.stdout.write(json.dumps({"jsonrpc":"2.0", "id":None, "error":{"code":-32700, "message":str(error)}}) + "\n")
+            sys.stdout.flush()
+            continue
         if "id" not in message:
             continue
         result, error = result_for(message)
@@ -326,4 +396,5 @@ def main():
         sys.stdout.flush()
 
 
-main()
+if __name__ == "__main__":
+    main()

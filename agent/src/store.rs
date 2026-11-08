@@ -6,7 +6,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+use crate::persistence::{atomic_write, valid_id, unique_id};
+use qwen_wasm::prompt::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -28,6 +30,10 @@ pub enum Entry {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SavedSession {
+    #[serde(default)]
+    pub pending_turn: bool,
+    #[serde(default)]
+    pub version: u32,
     pub id: String,
     pub title: String,
     pub created: u64,
@@ -42,12 +48,12 @@ pub fn now() -> u64 {
 
 impl SavedSession {
     pub fn new() -> Self {
-        let millis = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        Self { id: millis.to_string(), created: now(), updated: now(), ..Default::default() }
+        Self { id: unique_id(), version: 1, created: now(), updated: now(), ..Default::default() }
     }
 
-    fn path(id: &str) -> PathBuf {
-        PathBuf::from(SESSIONS_DIR).join(format!("{id}.json"))
+    fn path(id: &str) -> Result<PathBuf> {
+        if !valid_id(id) { bail!("invalid session ID"); }
+        Ok(PathBuf::from(SESSIONS_DIR).join(format!("{id}.json")))
     }
 
     /// Whether there is anything worth keeping: at least one user message.
@@ -64,7 +70,7 @@ impl SavedSession {
         }
         self.updated = now();
         std::fs::create_dir_all(SESSIONS_DIR)?;
-        std::fs::write(Self::path(&self.id), serde_json::to_string_pretty(self)?)?;
+        atomic_write(&Self::path(&self.id)?, serde_json::to_string_pretty(self)?.as_bytes())?;
         Ok(())
     }
 }
@@ -83,7 +89,7 @@ pub fn list() -> Vec<SavedSession> {
 }
 
 pub fn delete(id: &str) -> Result<()> {
-    Ok(std::fs::remove_file(SavedSession::path(id))?)
+    Ok(std::fs::remove_file(SavedSession::path(id)?)?)
 }
 
 pub fn age(secs: u64) -> String {
@@ -93,5 +99,24 @@ pub fn age(secs: u64) -> String {
         60..3600 => format!("{} min ago", d / 60),
         3600..86400 => format!("{} h ago", d / 3600),
         _ => format!("{} days ago", d / 86400),
+    }
+}
+
+pub fn checkpoint(id: &str, turn_id: &str, status: &str, messages: &[Message]) -> Result<()> {
+    if !valid_id(id) { bail!("invalid recovery ID"); }
+    let path = PathBuf::from(".qwen-agent/recovery").join(format!("{id}.json"));
+    atomic_write(&path, serde_json::to_vec(&serde_json::json!({"version":1,"turn_id":turn_id,"status":status,"messages":messages}))?.as_slice())
+}
+pub fn recover(id: &str) -> Result<Option<Vec<Message>>> {
+    if !valid_id(id) { bail!("invalid recovery ID"); }
+    let path = PathBuf::from(".qwen-agent/recovery").join(format!("{id}.json"));
+    match std::fs::read(&path) {
+        Ok(bytes) => {
+            let value: Value = serde_json::from_slice(&bytes)?;
+            if value["version"] != 1 { bail!("unsupported recovery version"); }
+            Ok(Some(serde_json::from_value(value["messages"].clone())?))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
     }
 }

@@ -43,17 +43,25 @@ TOOLS = [
 OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg, ast.UAdd: operator.pos}
 
 
-def evaluate(node):
+def evaluate(node, depth=0):
+    if depth > 32:
+        raise ValueError("expression is too deeply nested")
     if isinstance(node, ast.Expression):
-        return evaluate(node.body)
+        return evaluate(node.body, depth + 1)
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in OPS:
-        if isinstance(node.op, ast.Pow) and abs(evaluate(node.right)) > 100:
+        if isinstance(node.op, ast.Pow) and abs(evaluate(node.right, depth + 1)) > 100:
             raise ValueError("exponent too large")
-        return OPS[type(node.op)](evaluate(node.left), evaluate(node.right))
+        left, right = evaluate(node.left, depth + 1), evaluate(node.right, depth + 1)
+        if isinstance(node.op, ast.Pow) and isinstance(left, int) and left.bit_length() * max(1, right) > 4096:
+            raise ValueError("arithmetic result is too large")
+        value = OPS[type(node.op)](left, right)
+        if isinstance(value, int) and value.bit_length() > 4096:
+            raise ValueError("arithmetic result is too large")
+        return value
     if isinstance(node, ast.UnaryOp) and type(node.op) in OPS:
-        return OPS[type(node.op)](evaluate(node.operand))
+        return OPS[type(node.op)](evaluate(node.operand, depth + 1))
     raise ValueError("only numbers and + - * / ** ( ) are allowed")
 
 
@@ -69,12 +77,16 @@ def run_tool(name, args):
         now = datetime.datetime.now(datetime.timezone.utc) if args.get("utc") else datetime.datetime.now().astimezone()
         return now.strftime("%Y-%m-%d %H:%M:%S %Z")
     if name == "calculate":
-        return str(evaluate(ast.parse(str(args["expression"]), mode="eval")))
+        expression = str(args["expression"])
+        if len(expression) > 2048:
+            raise ValueError("expression exceeds 2048 characters")
+        return str(evaluate(ast.parse(expression, mode="eval")))
     if name == "list_files":
         folder = inside_sandbox(args.get("path"))
         return "\n".join(sorted(p.name + ("/" if p.is_dir() else "") for p in folder.iterdir())) or "(empty)"
     if name == "read_file":
-        return inside_sandbox(args["path"]).read_text(encoding="utf-8")[:4000]
+        with inside_sandbox(args["path"]).open(encoding="utf-8") as source:
+            return source.read(4000)
     raise KeyError(name)
 
 
@@ -112,13 +124,27 @@ def main():
     # MCP messages are UTF-8; Windows consoles would otherwise default to a legacy code page.
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout.reconfigure(encoding="utf-8")
-    for line in sys.stdin:
-        line = line.strip()
+    while True:
+        line = sys.stdin.buffer.readline(1_048_577)
         if not line:
+            break
+        if len(line) > 1_048_576:
+            print("MCP input frame exceeds 1 MiB", file=sys.stderr)
+            break
+        if not line.strip():
             continue
-        message = json.loads(line)
+        try:
+            message = json.loads(line)
+            if not isinstance(message, dict) or message.get("jsonrpc") != "2.0" or not isinstance(message.get("method"), str):
+                raise ValueError("invalid JSON-RPC request")
+            if not isinstance(message.get("params", {}), dict):
+                raise ValueError("params must be an object")
+        except (ValueError, UnicodeError) as error:
+            sys.stdout.write(json.dumps({"jsonrpc":"2.0", "id":None, "error":{"code":-32700, "message":str(error)}}) + "\n")
+            sys.stdout.flush()
+            continue
         if "id" not in message:
-            continue  # notifications need no answer
+            continue
         result, error = result_for(message)
         reply = {"jsonrpc": "2.0", "id": message["id"]}
         if error is not None:
@@ -131,4 +157,5 @@ def main():
         sys.stdout.flush()
 
 
-main()
+if __name__ == "__main__":
+    main()

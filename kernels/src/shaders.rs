@@ -9,6 +9,27 @@ pub const HIDDEN: u32 = 1024;
 const PAIR_FN: &str = "fn pair(w: u32) -> vec2<f16> { return bitcast<vec2<f16>>(w); }";
 #[cfg(not(target_arch = "wasm32"))]
 const PAIR_FN: &str = "fn pair(w: u32) -> vec2<f16> { return vec2<f16>(unpack2x16float(w)); }";
+/// Explicit small-loop expansion for drivers that keep array accesses dynamically indexed.
+fn unroll_gemv(mut source: String, rpt: u32) -> String {
+    if cfg!(target_arch = "wasm32") || std::env::var("QWEN_GEMV_UNROLL").as_deref() == Ok("0") { return source; }
+    for (var,n) in [("e",4),("e",8),("r",rpt)] {
+        let header=format!("for (var {var} = 0u; {var} < {n}u; {var} = {var} + 1u) {{");
+        while let Some(start)=source.find(&header) {
+            let body_start=start+header.len();
+            let mut depth=1;
+            let mut end=body_start;
+            for (i,c) in source[body_start..].char_indices() {
+                match c { '{'=>depth+=1, '}'=>depth-=1, _=>{} }
+                if depth==0 { end=body_start+i; break; }
+            }
+            let body=&source[body_start..end];
+            let expanded=(0..n).map(|i|format!("{{ let {var} = {i}u; {body} }}\n")).collect::<String>();
+            source.replace_range(start..=end,&expanded);
+        }
+    }
+    source
+}
+
 /// Upper bound of the attention context held in workgroup memory (16 kB of scores).
 pub const MAX_CONTEXT: u32 = 4096;
 
@@ -138,7 +159,7 @@ pub fn gemv_f16(tpr: u32, rpw: u32, rpt: u32, k: u32, epilogue: Epilogue) -> Str
     let half_blocks = blocks / 2;
     let zwords = blocks / 8;
     let pair_fn = PAIR_FN;
-    format!(
+    unroll_gemv(format!(
         r#"
 enable f16;
 {pair_fn}
@@ -225,7 +246,7 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wid: ve
     }}
 }}
 "#
-    )
+    ), rpt)
 }
 
 /// Split-K partial pass: matrices with few rows (1024 for the down and out projections) leave most
@@ -242,7 +263,7 @@ pub fn gemv_split_f16(tpr: u32, rpw: u32, rpt: u32, k: u32, splits: u32) -> Stri
     let half_blocks = blocks / 2;
     let zwords = blocks / 8;
     let pair_fn = PAIR_FN;
-    format!(
+    unroll_gemv(format!(
         r#"
 enable f16;
 {pair_fn}
@@ -320,7 +341,7 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wid: ve
     }}
 }}
 "#
-    )
+    ), rpt)
 }
 
 /// Split-K second pass: sums the partials of each row and applies the epilogue.
@@ -354,7 +375,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {{
     )
 }
 
-pub fn rmsnorm() -> String {
+pub fn rmsnorm() -> String { rmsnorm_width(HIDDEN) }
+
+pub fn rmsnorm_width(hidden: u32) -> String {
     format!(
         r#"
 @group(0) @binding(0) var<storage, read> x: array<f32>;
@@ -365,15 +388,15 @@ var<workgroup> red: array<f32, 256>;
 @compute @workgroup_size(256)
 fn main(@builtin(local_invocation_index) li: u32) {{
     var ss = 0.0;
-    for (var i = li; i < {HIDDEN}u; i = i + 256u) {{ let v = x[i]; ss = ss + v * v; }}
+    for (var i = li; i < {hidden}u; i = i + 256u) {{ let v = x[i]; ss = ss + v * v; }}
     red[li] = ss;
     workgroupBarrier();
     for (var off = 128u; off > 0u; off = off >> 1u) {{
         if (li < off) {{ red[li] = red[li] + red[li + off]; }}
         workgroupBarrier();
     }}
-    let inv = inverseSqrt(red[0] / f32({HIDDEN}u) + 1e-6);
-    for (var i = li; i < {HIDDEN}u; i = i + 256u) {{ y[i] = x[i] * inv * g[i]; }}
+    let inv = inverseSqrt(red[0] / f32({hidden}u) + 1e-6);
+    for (var i = li; i < {hidden}u; i = i + 256u) {{ y[i] = x[i] * inv * g[i]; }}
 }}
 "#
     )
@@ -381,8 +404,10 @@ fn main(@builtin(local_invocation_index) li: u32) {{
 
 /// Dequantizes the embedding row of the token that the previous step wrote to `tok[0]`, so the
 /// decode loop never needs the CPU.
-pub fn embed() -> String {
-    let words = HIDDEN / 8;
+pub fn embed() -> String { embed_width(HIDDEN) }
+
+pub fn embed_width(hidden: u32) -> String {
+    let words = hidden / 8;
     format!(
         r#"
 @group(0) @binding(0) var<storage, read> w: array<u32>;
@@ -403,8 +428,8 @@ fn main(@builtin(local_invocation_index) i: u32) {{
     }}
 }}
 "#,
-        sw = HIDDEN / 64,
-        zw = HIDDEN / 256
+        sw = hidden / 64,
+        zw = hidden / 256
     )
 }
 
@@ -478,8 +503,7 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
         sk = sk + sv * ks[j];
         sq = sq + sv * qs[j];
     }
-    var kq = 0.0;
-    for (var j = 0u; j < 128u; j = j + 1u) { kq = kq + ks[j] * qs[j]; }
+    let kq = sum128(t, ks[t] * qs[t]);
     let dv = beta * (v - g * sk);
     for (var j = 0u; j < 128u; j = j + 1u) {
         let i = base + j * 128u;
@@ -499,7 +523,8 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
 /// query heads share a KV head): per-head RMSNorm of q and k, rotary embedding on the first 64
 /// dimensions (rotate-half pairing, theta 1e7), attention over the cache, then the output gate.
 /// The current position comes from `tok[1]`. The new key (normed and rotated) and value are
-/// written to the cache by the first query head of each group; every head computes the current
+/// Keys use 32-position tiles: adjacent score lanes read adjacent keys without a full-context stride.
+/// The current key and value are written to the cache by the first query head of each group; every head computes the current
 /// key itself, so none reads that slot in the same dispatch.
 ///
 /// Input layout of `proj`: q[2048] gate[2048] k[512] v[512]. `prm`: q_norm[256] k_norm[256].
@@ -531,7 +556,7 @@ fn sum256(t: u32, v: f32) -> f32 {{
 
 fn key(kvh: u32, l: u32, pos: u32, j: u32) -> f32 {{
     if (l == pos) {{ return ksh[j]; }}
-    return kc[(kvh * {MAX_CONTEXT}u + l) * 256u + j];
+    return kc[((kvh * {MAX_CONTEXT}u / 32u + l / 32u) * 256u + j) * 32u + l % 32u];
 }}
 
 fn value(kvh: u32, l: u32, pos: u32, j: u32) -> f32 {{
@@ -571,7 +596,7 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
     ksh[t] = kr;
     workgroupBarrier();
     if (h % 4u == 0u) {{
-        kc[(kvh * {MAX_CONTEXT}u + pos) * 256u + t] = kr;
+        kc[((kvh * {MAX_CONTEXT}u / 32u + pos / 32u) * 256u + t) * 32u + pos % 32u] = kr;
         vc[(kvh * {MAX_CONTEXT}u + pos) * 256u + t] = proj[4608u + kvh * 256u + t];
     }}
 

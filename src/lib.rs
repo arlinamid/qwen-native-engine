@@ -4,6 +4,7 @@
 pub mod grammar;
 pub mod prompt;
 pub mod sampling;
+pub mod schema;
 pub mod toolcall;
 
 #[cfg(target_arch = "wasm32")]

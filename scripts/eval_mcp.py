@@ -10,6 +10,7 @@ server, or with --local loads the model for every case (slower, but leaves a run
 alone). Every case is a fresh conversation; greedy unless --sample (temperature 0.6, fixed seed).
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -51,6 +52,7 @@ def start_server(flags):
     if os.path.exists(SERVER_FILE):
         # It may be someone's TUI session; do not stop it from here.
         sys.exit("a qwen-agent server is running; stop it first (qwen-agent stop)")
+    os.makedirs(".qwen-agent", exist_ok=True)
     log = open(os.path.join(".qwen-agent", "eval_server.log"), "w")
     proc = subprocess.Popen([EXE, "serve", "--mcp", "examples/mcp.json", *flags], stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     for _ in range(600):
@@ -63,21 +65,50 @@ def start_server(flags):
 
 
 def run_case(prompt, flags, local, sample):
-    base = [EXE, "--prompt", prompt, "--mcp", "examples/mcp.json", "--yes", "--max-steps", "3", "--max-tokens", "256"]
+    base = [EXE, "--json", "--prompt", prompt, "--mcp", "examples/mcp.json", "--yes", "--max-steps", "3", "--max-tokens", "256"]
     base += ["--temperature", "0.6"] if sample else ["--greedy"]
     out = subprocess.run(base + (["--local"] if local else []) + flags,
                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
-    called = [line.split()[1] for line in out.stderr.splitlines() if line.strip().startswith("-> ")]
-    return out.stdout.strip(), called
+    events = [json.loads(line) for line in out.stdout.splitlines() if line.strip()]
+    return events, out.returncode
 
 
-def score(kind, expected, text, called):
+def score(kind, expected, events, returncode=0, prompt=""):
+    calls = [e for e in events if e.get("type") == "tool_call"]
+    results = {e.get("call_id"): e for e in events if e.get("type") == "tool_result"}
+    final = [e for e in events if e.get("type") == "finished"]
+    text = "".join(e.get("text", "") for e in events if e.get("type") == "text").strip()
+    if returncode or not final or final[-1].get("status") != "completed" or not text:
+        return False, "missing/failed terminal state or empty answer"
+    if any(e.get("type") in ("error", "rejected") for e in events):
+        return False, "execution or validation error"
+    if any(c.get("call_id") not in results or results[c["call_id"]].get("is_error") is not False for c in calls):
+        return False, "tool did not execute successfully"
     if kind == "meta":
         named = [t for t in TOOLS if t in text.lower() or t.replace("_", " ") in text.lower()]
-        return len(named) >= 3, f"named {len(named)}/4"
-    if kind == "task":
-        return expected in called, f"called {called or 'nothing'}"
-    return not called, f"called {called or 'nothing'}"
+        return len(named) >= 3 and not calls, f"named {len(named)}/4"
+    if kind == "chat":
+        return not calls, "chat completed; prose quality requires separate review"
+    if len(calls) != 1 or calls[0].get("name") != expected:
+        return False, "wrong or repeated tool"
+    call = calls[0]
+    output = results[call["call_id"]].get("output", "")
+    args = call.get("arguments", {})
+    if expected == "calculate":
+        value = "69104" if "1234" in prompt else "3293"
+        expression = re.sub(r"\s+", "", str(args.get("expression", "")))
+        valid_args = expression == ("1234*56" if "1234" in prompt else "37*89")
+        ok = valid_args and output.strip() == value and re.search(r"(?<!\d)" + value + r"(?!\d)", text.replace(" ", "")) is not None
+    elif expected == "read_file":
+        ok = args.get("path") in ("jegyzet.txt", "./jegyzet.txt") and "14:30" in output and "14:30" in text
+    elif expected == "list_files":
+        ok = args.get("path", ".") in (".", "", "./") and all(name in text for name in ("jegyzet.txt", "receptek"))
+    elif expected == "get_time":
+        time_match = re.search(r"\b\d{2}:\d{2}", output)
+        ok = bool(time_match and time_match.group() in text)
+    else:
+        return False, "no answer oracle for this tool"
+    return bool(ok), "arguments, execution and required answer facts checked"
 
 
 def evaluate(flags, local, sample):
@@ -85,9 +116,10 @@ def evaluate(flags, local, sample):
     results = []
     try:
         for prompt, kind, expected in CASES:
-            text, called = run_case(prompt, flags, local, sample)
-            ok, why = score(kind, expected, text, called)
-            results.append({"prompt": prompt, "kind": kind, "ok": ok, "why": why, "answer": text[:300]})
+            events, returncode = run_case(prompt, flags, local, sample)
+            ok, why = score(kind, expected, events, returncode, prompt)
+            text = "".join(e.get("text", "") for e in events if e.get("type") == "text")
+            results.append({"prompt": prompt, "kind": kind, "ok": ok, "why": why, "answer": text[:300], "events": events, "returncode": returncode})
             print(f"  [{'PASS' if ok else 'fail'}] {kind:4} {prompt!r}: {why}", flush=True)
     finally:
         if proc:

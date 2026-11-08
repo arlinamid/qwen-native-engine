@@ -99,8 +99,10 @@ fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wid: ve
 }
 
 /// Embedding rows for the chunk's token ids.
-pub fn embed() -> String {
-    let words = HIDDEN / 8;
+pub fn embed() -> String { embed_width(HIDDEN) }
+
+pub fn embed_width(hidden: u32) -> String {
+    let words = hidden / 8;
     format!(
         r#"
 @group(0) @binding(0) var<storage, read> w: array<u32>;
@@ -120,17 +122,19 @@ fn main(@builtin(local_invocation_index) i: u32, @builtin(workgroup_id) wid: vec
     let scale = unpack2x16float(s[row * {sw}u + i / 8u])[blk & 1u];
     let zp = f32((z[row * {zw}u + blk / 8u] >> (4u * (blk % 8u))) & 15u);
     for (var j = 0u; j < 8u; j = j + 1u) {{
-        h[n * {HIDDEN}u + i * 8u + j] = (f32((q >> (4u * j)) & 15u) - zp) * scale;
+        h[n * {hidden}u + i * 8u + j] = (f32((q >> (4u * j)) & 15u) - zp) * scale;
     }}
 }}
 "#,
-        sw = HIDDEN / 64,
-        zw = HIDDEN / 256
+        sw = hidden / 64,
+        zw = hidden / 256
     )
 }
 
 /// RMSNorm of each token row of the chunk.
-pub fn rmsnorm() -> String {
+pub fn rmsnorm() -> String { rmsnorm_width(HIDDEN) }
+
+pub fn rmsnorm_width(hidden: u32) -> String {
     format!(
         r#"
 @group(0) @binding(0) var<storage, read> x: array<f32>;
@@ -143,17 +147,17 @@ var<workgroup> red: array<f32, 256>;
 fn main(@builtin(local_invocation_index) li: u32, @builtin(workgroup_id) wid: vec3<u32>) {{
     let n = wid.x;
     if (n >= chunk[1]) {{ return; }}
-    let base = n * {HIDDEN}u;
+    let base = n * {hidden}u;
     var ss = 0.0;
-    for (var i = li; i < {HIDDEN}u; i = i + 256u) {{ let v = x[base + i]; ss = ss + v * v; }}
+    for (var i = li; i < {hidden}u; i = i + 256u) {{ let v = x[base + i]; ss = ss + v * v; }}
     red[li] = ss;
     workgroupBarrier();
     for (var off = 128u; off > 0u; off = off >> 1u) {{
         if (li < off) {{ red[li] = red[li] + red[li + off]; }}
         workgroupBarrier();
     }}
-    let inv = inverseSqrt(red[0] / f32({HIDDEN}u) + 1e-6);
-    for (var i = li; i < {HIDDEN}u; i = i + 256u) {{ y[base + i] = x[base + i] * inv * g[i]; }}
+    let inv = inverseSqrt(red[0] / f32({hidden}u) + 1e-6);
+    for (var i = li; i < {hidden}u; i = i + 256u) {{ y[base + i] = x[base + i] * inv * g[i]; }}
 }}
 "#
     )
@@ -230,8 +234,7 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
             sk = sk + s * ks[j];
             sq = sq + s * qs[j];
         }
-        var kq = 0.0;
-        for (var j = 0u; j < 128u; j = j + 1u) { kq = kq + ks[j] * qs[j]; }
+        let kq = sum128(t, ks[t] * qs[t]);
         let dv = beta * (v - g * sk);
         for (var j = 0u; j < 128u; j = j + 1u) {
             let i = base + j * 128u;
@@ -303,7 +306,7 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
     let pos = min(chunk[0] + n, {MAX_CONTEXT}u - 1u);
     let row = n * 5120u;
     norm_rope(t, proj[row + 4096u + kvh * 256u + t], prm[256u + t], pos);
-    kc[(kvh * {MAX_CONTEXT}u + pos) * 256u + t] = vsh[t];
+    kc[((kvh * {MAX_CONTEXT}u / 32u + pos / 32u) * 256u + t) * 32u + pos % 32u] = vsh[t];
     vc[(kvh * {MAX_CONTEXT}u + pos) * 256u + t] = proj[row + 4608u + kvh * 256u + t];
 }}
 "#
@@ -339,7 +342,7 @@ fn main(@builtin(local_invocation_index) t: u32, @builtin(workgroup_id) wid: vec
     var local_max = -3.0e38;
     for (var l = t; l < len; l = l + 256u) {{
         var d = 0.0;
-        for (var j = 0u; j < 256u; j = j + 1u) {{ d = d + vsh[j] * kc[(kvh * {MAX_CONTEXT}u + l) * 256u + j]; }}
+        for (var j = 0u; j < 256u; j = j + 1u) {{ d = d + vsh[j] * kc[((kvh * {MAX_CONTEXT}u / 32u + l / 32u) * 256u + j) * 32u + l % 32u]; }}
         sc[l] = d * 0.0625;
         local_max = max(local_max, sc[l]);
     }}

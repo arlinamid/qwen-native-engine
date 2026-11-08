@@ -4,11 +4,10 @@
 //! and saved to `.qwen-agent/settings.json`.
 
 use std::{
-    io::BufRead,
     net::TcpStream,
     path::Path,
     process::{Child, Command, Stdio},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{self, Receiver, SyncSender},
     thread,
     time::{Duration, Instant},
 };
@@ -29,6 +28,7 @@ use crate::{
     client::{self, Connection, send_to},
     profile,
     settings::{SETTINGS_FILE, Settings},
+    skills,
     store::{self, Entry, SavedSession},
     ui,
 };
@@ -38,21 +38,59 @@ const SERVER_LOG: &str = ".qwen-agent/server.log";
 /// Editable settings: key, label, and whether the server must restart to use it.
 const FIELDS: &[(&str, &str, bool)] = &[
     ("mcp", "MCP config file", true),
-    ("model_dir", "Model folder", true),
+    ("model", "Model: 0.8B / 2B", true),
+    ("model_dir", "Model folder (custom)", true),
+    ("kernel_tiles", "Kernel tile profile", true),
     ("dxc", "DXC compiler (f16 kernels)", true),
     ("system", "System prompt", true),
     ("mcp_guide", "Explain MCP to the model", true),
     ("port", "Server port", true),
     ("auto_approve", "Run tools without asking", false),
-    ("thinking", "Thinking mode", false),
+    ("thinking", "Thinking: auto / on / off", false),
     ("temperature", "Temperature (0 = greedy)", false),
     ("presence_penalty", "Repetition penalty (0-2)", false),
     ("icons", "Icons and emoji", false),
     ("max_steps", "Tool steps per message", false),
     ("max_tokens", "Tokens per step", false),
+    ("turn_timeout_secs", "Turn timeout (seconds)", false),
 ];
 
-const HELP: &str = "/new new conversation · /sessions saved ones (F2) · /settings (F3) · /profile about you and the agent (F4) · /thinking turns thinking mode on/off · Ctrl+T shows/hides the reasoning · /tools · /restart restarts the server · /retry reconnects · /quit quits, the server stays warm (Ctrl+Q) · /exit quits and stops the server";
+const HELP: &str = "/model 0.8b or /model 2b switches model · /cancel cancels work (Ctrl+C / Esc) · Ctrl+O full tool results · /new new conversation · /sessions saved ones (F2) · /settings (F3) · /profile about you and the agent (F4) · /thinking cycles auto/on/off · Ctrl+T shows/hides the reasoning · /tools · /skills lists skills · /skill name forces one for the next message · /create-skill name scaffolds a skill · /validate-skill [name] checks SKILL.md · Tab completes · skills in .qwen-agent/skills/ (restart after edits) · /restart · /retry · /quit · /exit";
+
+/// Slash commands in the picker (label is the insert text).
+const COMMAND_ITEMS: &[(&str, &str)] = &[
+    ("/help", "List all commands"),
+    ("/cancel", "Cancel the current reply"),
+    ("/new", "Start a new conversation"),
+    ("/sessions", "Open saved chats"),
+    ("/settings", "Open settings"),
+    ("/profile", "Edit agent and user profile"),
+    ("/setup", "Same as /profile"),
+    ("/thinking", "Cycle thinking auto / on / off"),
+    ("/tools", "List MCP tools"),
+    ("/skills", "List available skills"),
+    ("/skill", "Force a skill for the next message"),
+    ("/create-skill", "Scaffold a new skill folder + SKILL.md"),
+    ("/validate-skill", "Validate one skill or all skills"),
+    ("/model", "Switch model: 0.8b or 2b"),
+    ("/retry", "Reconnect to the server"),
+    ("/restart", "Restart the server"),
+    ("/quit", "Quit; keep the server warm"),
+    ("/exit", "Quit and stop the server"),
+    ("/stop", "Same as /exit"),
+];
+const MODEL_ITEMS: &[(&str, &str)] = &[
+    ("0.8b", "Qwen3.5 0.8B — faster on this GPU"),
+    ("2b", "Qwen3.5 2B — stronger answers"),
+];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CompleteItem {
+    /// Text written into the input when accepted.
+    insert: String,
+    label: String,
+    description: String,
+}
 
 enum Msg {
     Status(String),
@@ -84,6 +122,7 @@ fn spawn_server(settings: &Settings) -> Result<Child> {
     command
         .arg("serve")
         .args(["--mcp", &settings.mcp, "--model-dir", &settings.model_dir, "--dxc", &settings.dxc, "--system", &settings.system])
+        .args(["--kernel-tiles", &settings.kernel_tiles])
         .args(["--port", &settings.port.to_string()])
         .arg(if settings.mcp_guide { "--mcp-guide" } else { "--no-mcp-guide" })
         .stdin(Stdio::null())
@@ -118,29 +157,41 @@ fn published_pid() -> Option<u32> {
 }
 
 /// Connects (starting a server if none runs) on a thread, then forwards the server's messages.
-fn connect_in_background(tx: Sender<Msg>, settings: Settings, after_shutdown: bool) {
+fn connect_in_background(tx: SyncSender<Msg>, settings: Settings, after_shutdown: bool) {
     thread::spawn(move || {
         let server_file = Path::new(SERVER_FILE);
         let result = (|| -> Result<(Connection, Value)> {
             if after_shutdown {
-                // The old server removes its file just before it exits.
-                for _ in 0..50 {
-                    if !server_file.exists() {
-                        break;
+                // The file disappears only after the old process has freed the GPU and the model lock.
+                let _ = tx.send(Msg::Status("waiting for the previous model to release the GPU".into()));
+                let started = Instant::now();
+                while server_file.exists() {
+                    if started.elapsed() > Duration::from_secs(120) {
+                        bail!("the previous server did not release the model in 2 minutes; see {SERVER_LOG}");
                     }
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_millis(200));
                 }
             }
             if let Some(found) = client::open(server_file)? {
                 return Ok(found);
             }
             let _ = tx.send(Msg::Status("starting the server".into()));
-            let mut child = spawn_server(&settings)?;
             let started = Instant::now();
+            let mut lease_waits = 0u32;
+            let mut child = spawn_server(&settings)?;
             let mut last = String::new();
             loop {
                 if let Some(status) = child.try_wait()? {
-                    bail!("the server exited ({status}): {}", last_log_line().unwrap_or_default());
+                    let line = last_log_line().unwrap_or_default();
+                    // Lost the race with the process that is still dropping the previous model.
+                    if line.contains("already owns the model") && lease_waits < 150 {
+                        lease_waits += 1;
+                        let _ = tx.send(Msg::Status("waiting for the previous model to release the GPU".into()));
+                        thread::sleep(Duration::from_millis(200));
+                        child = spawn_server(&settings)?;
+                        continue;
+                    }
+                    bail!("the server exited ({status}): {line}");
                 }
                 if published_pid() == Some(child.id()) {
                     if let Some(found) = client::open(server_file)? {
@@ -167,13 +218,9 @@ fn connect_in_background(tx: Sender<Msg>, settings: Settings, after_shutdown: bo
         let Connection { writer, mut reader } = connection;
         let _ = tx.send(Msg::Connected(writer, ready));
         loop {
-            let mut line = String::new();
-            let msg = match reader.read_line(&mut line) {
-                Ok(0) => Msg::Closed("the server closed the connection".into()),
-                Ok(_) => match serde_json::from_str(&line) {
-                    Ok(v) => Msg::Server(v),
-                    Err(_) => continue,
-                },
+            let msg = match crate::runtime::read_json(&mut reader, crate::runtime::MAX_FRAME) {
+                Ok(Some(v)) => Msg::Server(v),
+                Ok(None) => Msg::Closed("the server closed the connection".into()),
                 Err(e) => Msg::Closed(e.to_string()),
             };
             let closed = matches!(msg, Msg::Closed(_));
@@ -198,11 +245,18 @@ struct App {
     link_status: String,
     link_since: Instant,
     writer: Option<TcpStream>,
-    tx: Sender<Msg>,
+    tx: SyncSender<Msg>,
     rx: Receiver<Msg>,
     busy: bool,
     busy_since: Instant,
     confirm: Option<(String, String)>,
+    confirmation_id: (String, String),
+    turn_id: String,
+    phase: String,
+    context_status: String,
+    confirm_scroll: u16,
+    show_tools: bool,
+    dirty: bool,
     server_settings: Value,
     restart_after_close: bool,
     quit_after_close: bool,
@@ -227,12 +281,19 @@ struct App {
     last_speed: String,
     /// A file to open in the external editor; the event loop hands it the terminal.
     pending_editor: Option<std::path::PathBuf>,
+    /// Skill forced by `/skill name` for the next send only.
+    forced_skill: Option<String>,
+    /// Skill catalog from the server ready message (fallback: local disk).
+    server_skills: Vec<(String, String)>,
+    /// Slash / skill / model picker above the chat input (Cursor-style).
+    palette: Vec<CompleteItem>,
+    palette_index: usize,
     quit: bool,
 }
 
 impl App {
     fn new(settings: Settings, resume: bool) -> Self {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = mpsc::sync_channel(256);
         let session = if resume { store::list().into_iter().next().unwrap_or_else(SavedSession::new) } else { SavedSession::new() };
         Self {
             settings,
@@ -250,6 +311,13 @@ impl App {
             busy: false,
             busy_since: Instant::now(),
             confirm: None,
+            confirmation_id: (String::new(), String::new()),
+            turn_id: String::new(),
+            phase: String::new(),
+            context_status: String::new(),
+            confirm_scroll: 0,
+            show_tools: false,
+            dirty: true,
             server_settings: Value::Null,
             restart_after_close: false,
             quit_after_close: false,
@@ -269,6 +337,10 @@ impl App {
             tool_count: 0,
             last_speed: String::new(),
             pending_editor: None,
+            forced_skill: None,
+            server_skills: Vec::new(),
+            palette: Vec::new(),
+            palette_index: 0,
             quit: false,
         }
     }
@@ -281,6 +353,7 @@ impl App {
     }
 
     fn push(&mut self, entry: Entry) {
+        self.dirty = true;
         self.session.entries.push(entry);
     }
 
@@ -320,6 +393,7 @@ impl App {
     // ----- server messages -----
 
     fn on_msg(&mut self, msg: Msg) {
+        self.dirty = true;
         match msg {
             Msg::Status(status) => self.link_status = status,
             Msg::Connected(writer, ready) => {
@@ -339,9 +413,23 @@ impl App {
                 if self.server_profile.as_deref().is_some_and(|p| p != profile::render()) {
                     self.note("the server runs with an older profile; /restart applies yours");
                 }
-                if !self.session.messages.is_empty() {
+                self.server_skills = ready
+                    .get("skills")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|s| {
+                                Some((
+                                    s.get("name")?.as_str()?.to_string(),
+                                    s.get("description")?.as_str().unwrap_or("").to_string(),
+                                ))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !self.session.messages.is_empty() || self.session.pending_turn {
                     let messages = self.session.messages.clone();
-                    self.send(json!({ "type": "load", "messages": messages }));
+                    self.send(json!({ "type": "load", "messages": messages, "session_id":self.session.id, "recover":self.session.pending_turn }));
                 }
             }
             Msg::Server(event) => self.on_event(event),
@@ -350,6 +438,7 @@ impl App {
                 self.link = Link::Down;
                 self.busy = false;
                 self.confirm = None;
+                self.save_session();
                 if self.quit_after_close {
                     self.quit = true;
                 } else if self.restart_after_close {
@@ -368,8 +457,23 @@ impl App {
     }
 
     fn on_event(&mut self, event: Value) {
+        self.dirty = true;
         let s = |key: &str| event.get(key).and_then(Value::as_str).unwrap_or("").to_string();
         match s("type").as_str() {
+            "phase" => self.phase = s("phase"),
+            "context" => self.context_status = format!("{} / {} tokens", event["used"], event["limit"]),
+            "checkpoint" => {
+                if let Some(messages) = event.get("messages").and_then(Value::as_array) { self.session.messages = messages.clone(); }
+                self.save_session();
+            }
+            "finished" => {
+                if s("status") != "completed" { self.note(format!("turn ended: {}",s("status"))); }
+            }
+            "busy" => {
+                self.busy = false; self.session.pending_turn = false;
+                if let Some(Entry::User { text }) = self.session.entries.last() { self.input = text.clone(); self.cursor = self.input.chars().count(); self.session.entries.pop(); }
+                self.note(s("message")); self.save_session();
+            }
             "thinking" => {
                 let piece = s("text");
                 match self.session.entries.last_mut() {
@@ -408,17 +512,26 @@ impl App {
             }
             "done" => {
                 if event.get("finished").and_then(Value::as_bool) == Some(false) {
-                    self.note("the reply was cut off by the token limit (Tokens per step in F3)");
+                    let note = if event.get("stop").and_then(Value::as_str) == Some("max_tokens") {
+                        "the reply was cut off by the token limit (Tokens per step in F3)"
+                    } else {
+                        "the reply ended without a complete answer"
+                    };
+                    self.note(note);
                 }
             }
             "step_limit" => self.note("stopped: the tool step limit was reached"),
             "confirm" => {
                 let arguments = event.get("arguments").map(Value::to_string).unwrap_or_default();
+                self.confirmation_id = (s("turn_id"), s("call_id"));
+                self.confirm_scroll = 0;
                 self.confirm = Some((s("name"), arguments));
             }
             "error" => self.error(s("message")),
             "end" => {
                 self.busy = false;
+                self.confirm = None;
+                self.session.pending_turn = false;
                 if let Some(messages) = event.get("messages").and_then(Value::as_array) {
                     self.session.messages = messages.clone();
                 }
@@ -462,28 +575,63 @@ impl App {
             self.note(if self.link == Link::Connecting { "the server is still starting; send again when it is ready" } else { "not connected (/retry)" });
             return;
         }
-        if self.send(json!({ "type": "turn", "text": text, "options": self.settings.turn_options() })) {
+        if !self.server_settings.get("model_dir").and_then(Value::as_str).is_some_and(|p|self.settings.matches_model(p)) {
+            self.input = text;
+            self.cursor = self.input.chars().count();
+            self.note("the selected model is not running; /restart applies it, or use /model 0.8b or /model 2b");
+            return;
+        }
+        self.turn_id = crate::persistence::unique_id();
+        let send_text = if let Some(skill) = self.forced_skill.take() {
+            format!("${skill} {text}")
+        } else {
+            text.clone()
+        };
+        if self.send(json!({ "type": "turn", "text": send_text, "options": self.settings.turn_options(), "turn_id":self.turn_id, "session_id":self.session.id })) {
             self.push(Entry::User { text });
+            self.session.pending_turn = true;
+            self.save_session();
             self.busy = true;
             self.busy_since = Instant::now();
             self.scroll = 0;
+        } else if send_text != text {
+            // Restore forced skill if the send failed after take().
+            if let Some((name, _)) = send_text.strip_prefix('$').and_then(|rest| rest.split_once(' ')) {
+                self.forced_skill = Some(name.to_string());
+            }
         }
     }
 
     fn command(&mut self, command: &str) {
+        if let Some(choice) = command.strip_prefix("/model ") { self.select_model(choice); return; }
+        if let Some(rest) = command_rest(command, "/create-skill") {
+            self.create_skill_cmd(rest);
+            return;
+        }
+        if let Some(rest) = command_rest(command, "/validate-skill") {
+            self.validate_skill_cmd(rest);
+            return;
+        }
+        if let Some(name) = command.strip_prefix("/skill ") {
+            self.force_skill(name.trim());
+            return;
+        }
         match command {
+            "/model" => { self.view = View::Settings; self.settings_state.select(Some(1)); },
             "/help" => self.note(HELP),
+            "/cancel" => self.cancel_turn(),
             "/new" => self.new_session(),
             "/sessions" => self.open_sessions(),
             "/settings" => self.view = View::Settings,
             "/profile" | "/setup" => self.view = View::Profile,
             "/thinking" => {
                 self.apply_setting("thinking", "", false);
-                self.note(format!("thinking mode {} (saved)", if self.settings.thinking { "on" } else { "off" }));
+                self.note(format!("thinking mode {} (saved)", self.settings.thinking_mode.label()));
             }
             "/tools" => {
                 self.send(json!({ "type": "tools" }));
             }
+            "/skills" | "/skill" => self.list_skills(),
             "/retry" => match self.link {
                 Link::Down => self.reconnect(false),
                 Link::Ready => self.note("already connected"),
@@ -503,6 +651,108 @@ impl App {
             "/quit" => self.quit = true,
             other => self.note(format!("unknown command {other}; {HELP}")),
         }
+    }
+
+    fn list_skills(&mut self) {
+        let catalog = self.skill_catalog();
+        if catalog.is_empty() {
+            self.note("no skills (add folders under .qwen-agent/skills/ then /restart)");
+            return;
+        }
+        let list: Vec<_> = catalog
+            .iter()
+            .map(|(name, desc)| {
+                let loaded = self.server_skills.iter().any(|(n, _)| n == name);
+                if loaded || self.server_skills.is_empty() {
+                    format!("{name}: {desc}")
+                } else {
+                    format!("{name}: {desc}  (on disk · /restart to load)")
+                }
+            })
+            .collect();
+        self.note(format!(
+            "{}\n(skills in .qwen-agent/skills/; /skill name forces one next; /restart after edits)",
+            list.join("\n")
+        ));
+    }
+
+    fn force_skill(&mut self, name: &str) {
+        if name.is_empty() {
+            self.list_skills();
+            return;
+        }
+        let loaded = self.server_skills.iter().any(|(n, _)| n.eq_ignore_ascii_case(name));
+        let on_disk = self.skill_catalog().iter().any(|(n, _)| n.eq_ignore_ascii_case(name));
+        if loaded || (self.server_skills.is_empty() && on_disk) {
+            self.forced_skill = Some(name.to_ascii_lowercase());
+            self.note(format!("skill {name} will apply to the next message"));
+            return;
+        }
+        if on_disk {
+            self.note(format!("skill {name} is on disk; /restart so the server can inject it"));
+            return;
+        }
+        self.note(format!("unknown skill {name}; /skills lists them"));
+    }
+
+    fn create_skill_cmd(&mut self, rest: &str) {
+        let mut parts = rest.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("").trim();
+        let description = parts.next().map(str::trim).filter(|s| !s.is_empty());
+        if name.is_empty() {
+            self.note("usage: /create-skill name [description…]  (lowercase-hyphen name)");
+            return;
+        }
+        match skills::create_skill(Path::new("."), name, description) {
+            Ok(path) => {
+                self.note(format!(
+                    "created {} · edit the body, then /validate-skill {name} · /restart to load",
+                    path.display()
+                ));
+                self.pending_editor = Some(path);
+            }
+            Err(e) => self.note(format!("create-skill failed: {e:#}")),
+        }
+    }
+
+    fn validate_skill_cmd(&mut self, rest: &str) {
+        let name = rest.trim();
+        let report = if name.is_empty() {
+            match skills::validate_all(Path::new(".")) {
+                Ok(results) => skills::format_validation_report(&results),
+                Err(e) => format!("validate-skill failed: {e:#}"),
+            }
+        } else if !skills::is_skill_name(&name.to_ascii_lowercase()) {
+            format!("invalid skill name `{name}`")
+        } else {
+            let path = Path::new(skills::SKILLS_DIR).join(name.to_ascii_lowercase()).join("SKILL.md");
+            let issues = skills::validate_skill_path(&path);
+            skills::format_validation_report(&[(name.to_ascii_lowercase(), path, issues)])
+        };
+        self.note(report);
+    }
+
+    fn select_model(&mut self, choice: &str) {
+        if self.busy || self.link == Link::Connecting { self.note("finish or cancel the current work before switching model"); return; }
+        let result = (|| -> Result<Settings> {
+            let selected = self.settings.select_model(choice)?;
+            selected.check_model_files()?;
+            let mut saved = Settings::load_or_create(Path::new(SETTINGS_FILE))?;
+            saved.model_dir = selected.model_dir.clone();
+            saved.kernel_tiles = selected.kernel_tiles.clone();
+            saved.save(Path::new(SETTINGS_FILE))?;
+            Ok(selected)
+        })();
+        match result {
+            Ok(settings) => {
+                self.settings = settings;
+                self.settings_note = format!("{} selected; switching server",self.settings.model_choice());
+                self.note(self.settings_note.clone());
+                self.restart_server();
+            },
+            Err(e) => { self.settings_note = format!("model unchanged: {e:#}"); self.error(self.settings_note.clone()); },
+        }
+        self.dirty = true;
     }
 
     fn restart_server(&mut self) {
@@ -532,7 +782,7 @@ impl App {
         }
         self.session = SavedSession::new();
         if self.link == Link::Ready {
-            self.send(json!({ "type": "reset" }));
+            self.send(json!({ "type": "reset", "session_id":self.session.id }));
         }
         self.view = View::Chat;
         self.scroll = 0;
@@ -548,7 +798,7 @@ impl App {
         self.scroll = 0;
         if self.link == Link::Ready {
             let messages = self.session.messages.clone();
-            self.send(json!({ "type": "load", "messages": messages }));
+            self.send(json!({ "type": "load", "messages": messages, "session_id":self.session.id, "recover":self.session.pending_turn }));
         }
         self.note("conversation reopened; it continues where it stopped");
     }
@@ -566,8 +816,11 @@ impl App {
             // The file gets only this field, so this run's flags are not saved with it.
             let effective = self.settings.with_field(key, raw)?;
             let path = Path::new(SETTINGS_FILE);
+            let storage_key = if key == "thinking" { "thinking_mode" } else { key };
             let mut file = serde_json::to_value(Settings::load_or_create(path)?)?;
-            file[key] = serde_json::to_value(&effective)?[key].clone();
+            file[storage_key] = serde_json::to_value(&effective)?[storage_key].clone();
+            // Drop the legacy bool key so reload does not resurrect it beside thinking_mode.
+            if storage_key == "thinking_mode" { file.as_object_mut().map(|o| o.remove("thinking")); }
             serde_json::from_value::<Settings>(file)?.save(path)?;
             Ok(effective)
         })();
@@ -583,14 +836,24 @@ impl App {
 
     // ----- keys -----
 
+    fn cancel_turn(&mut self) {
+        if self.busy { self.send(json!({"type":"cancel","turn_id":self.turn_id})); self.confirm = None; self.phase = "cancelling".into(); self.dirty = true; }
+    }
+
     fn on_key(&mut self, key: KeyEvent) {
+        self.dirty = true;
         // AltGr arrives as Ctrl+Alt on Windows; only plain Ctrl is a shortcut.
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
+        if ctrl && key.code == KeyCode::Char('c') && self.busy { self.cancel_turn(); return; }
         if ctrl && matches!(key.code, KeyCode::Char('q') | KeyCode::Char('c')) {
-            self.quit = true;
-            return;
+            self.cancel_turn(); self.save_session(); self.quit = true; return;
         }
         if self.confirm.is_some() {
+            match key.code {
+                KeyCode::PageDown | KeyCode::Down => { self.confirm_scroll = self.confirm_scroll.saturating_add(3); return; }
+                KeyCode::PageUp | KeyCode::Up => { self.confirm_scroll = self.confirm_scroll.saturating_sub(3); return; }
+                _ => {}
+            }
             let answer = match key.code {
                 KeyCode::Char('y' | 'Y' | 'i' | 'I') => "y",
                 KeyCode::Char('a' | 'A') => "a",
@@ -598,7 +861,7 @@ impl App {
                 _ => return,
             };
             self.confirm = None;
-            self.send(json!({ "type": "approval", "answer": answer }));
+            self.send(json!({ "type": "approval", "answer": answer, "turn_id":self.confirmation_id.0, "call_id":self.confirmation_id.1 }));
             return;
         }
         if self.editing.is_none() {
@@ -624,11 +887,25 @@ impl App {
 
     fn chat_key(&mut self, key: KeyEvent, ctrl: bool) {
         let len = self.input.chars().count();
+        let palette_open = !self.palette.is_empty();
         match key.code {
+            KeyCode::Enter if palette_open => self.accept_palette(),
             KeyCode::Enter => self.submit(),
+            KeyCode::Tab if palette_open => self.move_palette(1),
+            KeyCode::BackTab if palette_open => self.move_palette(-1),
+            KeyCode::Tab => {
+                self.refresh_palette();
+                if self.palette.len() == 1 {
+                    self.accept_palette();
+                }
+            }
+            KeyCode::Up if palette_open => self.move_palette(-1),
+            KeyCode::Down if palette_open => self.move_palette(1),
             KeyCode::Char('n') if ctrl => self.new_session(),
             KeyCode::Char('t') if ctrl => self.show_thinking = !self.show_thinking,
+            KeyCode::Char('o') if ctrl => self.show_tools = !self.show_tools,
             KeyCode::Char('u') if ctrl => {
+                self.clear_palette();
                 self.input.clear();
                 self.cursor = 0;
             }
@@ -636,15 +913,18 @@ impl App {
                 let at = self.byte_at(self.cursor);
                 self.input.insert(at, c);
                 self.cursor += 1;
+                self.refresh_palette();
             }
             KeyCode::Backspace if self.cursor > 0 => {
                 self.cursor -= 1;
                 let at = self.byte_at(self.cursor);
                 self.input.remove(at);
+                self.refresh_palette();
             }
             KeyCode::Delete if self.cursor < len => {
                 let at = self.byte_at(self.cursor);
                 self.input.remove(at);
+                self.refresh_palette();
             }
             KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
             KeyCode::Right => self.cursor = (self.cursor + 1).min(len),
@@ -654,7 +934,10 @@ impl App {
             KeyCode::PageDown => self.scroll = self.scroll.saturating_sub(10),
             KeyCode::Up => self.scroll += 1,
             KeyCode::Down => self.scroll = self.scroll.saturating_sub(1),
+            KeyCode::Esc if palette_open => self.clear_palette(),
+            KeyCode::Esc if self.busy => self.cancel_turn(),
             KeyCode::Esc => {
+                self.clear_palette();
                 self.input.clear();
                 self.cursor = 0;
             }
@@ -662,6 +945,70 @@ impl App {
             KeyCode::F(3) => self.view = View::Settings,
             KeyCode::F(4) => self.view = View::Profile,
             _ => {}
+        }
+    }
+
+    fn clear_palette(&mut self) {
+        self.palette.clear();
+        self.palette_index = 0;
+    }
+
+    fn skill_catalog(&self) -> Vec<(String, String)> {
+        let mut catalog: Vec<(String, String)> = skills::load_catalog(Path::new("."))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| (s.name, s.description))
+            .collect();
+        for (name, desc) in &self.server_skills {
+            if !catalog.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+                catalog.push((name.clone(), desc.clone()));
+            }
+        }
+        catalog
+    }
+
+    fn refresh_palette(&mut self) {
+        let prev = self.palette.get(self.palette_index).map(|i| i.insert.clone());
+        self.palette = completion_items(&self.input, &self.skill_catalog());
+        self.palette_index = prev
+            .and_then(|insert| self.palette.iter().position(|i| i.insert == insert))
+            .unwrap_or(0)
+            .min(self.palette.len().saturating_sub(1));
+    }
+
+    fn move_palette(&mut self, delta: i32) {
+        if self.palette.is_empty() {
+            return;
+        }
+        let n = self.palette.len() as i32;
+        self.palette_index = ((self.palette_index as i32 + delta).rem_euclid(n)) as usize;
+    }
+
+    /// Accept the highlighted picker row into the input; run finished slash commands.
+    fn accept_palette(&mut self) {
+        let Some(item) = self.palette.get(self.palette_index).cloned() else { return };
+        let filled = with_completion_space(&item.insert);
+        self.input = filled.clone();
+        self.cursor = self.input.chars().count();
+        // Arg completions that form a finished command line — run them.
+        if item.insert.starts_with("/skill ")
+            || item.insert.starts_with("/model ")
+            || item.insert.starts_with("/validate-skill ")
+        {
+            self.clear_palette();
+            self.submit();
+            return;
+        }
+        // Bare slash command with no trailing arg slot — run it.
+        if filled.starts_with('/') && !filled.ends_with(' ') && !filled[1..].contains(' ') {
+            self.clear_palette();
+            self.submit();
+            return;
+        }
+        // Commands that still need args — keep the picker open when possible.
+        self.refresh_palette();
+        if self.palette.is_empty() {
+            self.clear_palette();
         }
     }
 
@@ -734,6 +1081,13 @@ impl App {
         match key.code {
             KeyCode::Up => self.settings_state.select(Some(index.saturating_sub(1))),
             KeyCode::Down => self.settings_state.select(Some((index + 1).min(FIELDS.len() - 1))),
+            KeyCode::Enter | KeyCode::Left | KeyCode::Right if field == "model" => {
+                let choice = if self.settings.model_choice() == "2b" { "0.8b" } else { "2b" };
+                self.select_model(choice);
+            },
+            KeyCode::Enter | KeyCode::Left | KeyCode::Right if field == "thinking" => {
+                self.apply_setting("thinking", "", restart);
+            },
             KeyCode::Enter => match field_value(&self.settings, field) {
                 Value::Bool(_) => self.apply_setting(field, "", restart),
                 Value::String(s) => self.editing = Some(s),
@@ -825,6 +1179,7 @@ impl App {
         }
         self.draw_input(f, input);
         self.draw_hints(f, hints);
+        self.draw_palette(f, input);
         self.draw_confirm(f);
     }
 
@@ -846,8 +1201,12 @@ impl App {
             spans.push(Span::styled(format!("{key} "), ui::dim()));
         }
         let (dot, color, text) = match self.link {
-            Link::Ready if self.busy => (ic.pick("⏳", "*"), ui::TOOL, format!("working · {} s", self.busy_since.elapsed().as_secs())),
-            Link::Ready => (ic.pick("🟢", "*"), ui::OK, "ready".to_string()),
+            Link::Ready if self.busy => (ic.pick("⏳", "*"), ui::TOOL, format!("{} · {} s · {}", self.phase, self.busy_since.elapsed().as_secs(), self.context_status)),
+            Link::Ready => {
+                let active = self.server_settings.get("model_dir").and_then(Value::as_str).unwrap_or("?");
+                let name = Path::new(active).file_name().and_then(|s| s.to_str()).unwrap_or(active).trim_start_matches("qwen3.5-");
+                (ic.pick("🟢", "*"), ui::OK, format!("{} ready", name.to_uppercase()))
+            },
             Link::Connecting => {
                 let status: String = self.link_status.chars().take(40).collect();
                 (ic.pick("🟡", "~"), ui::TOOL, format!("{status} · {} s", self.link_since.elapsed().as_secs()))
@@ -864,7 +1223,8 @@ impl App {
     /// Key hints at the bottom, and the last speed in the chat.
     fn draw_hints(&self, f: &mut Frame, area: Rect) {
         let keys: &[(&str, &str)] = match self.view {
-            View::Chat => &[("Enter", "send"), ("Ctrl+N", "new chat"), ("Ctrl+T", "thinking"), ("PgUp/PgDn", "scroll"), ("/help", "commands"), ("Ctrl+Q", "quit")],
+            View::Chat if !self.palette.is_empty() => &[("↑↓", "choose"), ("Enter", "use"), ("Tab", "next"), ("Esc", "close"), ("Ctrl+Q", "quit")],
+            View::Chat => &[("Enter", "send"), ("/", "commands"), ("$", "skills"), ("Tab", "picker"), ("Ctrl+N", "new chat"), ("Ctrl+Q", "quit")],
             View::Sessions => &[("↑↓", "choose"), ("Enter", "open"), ("n", "new"), ("d d", "delete"), ("Esc", "back")],
             View::Settings | View::Profile if self.editing.is_some() => &[("Enter", "save"), ("Esc", "cancel")],
             View::Settings | View::Profile => &[("↑↓", "choose"), ("Enter", "edit"), ("r", "restart server"), ("Esc", "back")],
@@ -901,7 +1261,7 @@ impl App {
             lines.push(Line::from(vec![Span::raw(format!("    {} ", ic.pick(icon, "-"))), Span::styled(format!("\"{question}\""), Style::new().fg(ui::USER))]));
         }
         lines.push(Line::default());
-        lines.push(Line::styled("  F1 chat · F2 saved chats · F3 settings · F4 profile · /help for all commands", ui::dim()));
+        lines.push(Line::styled("  F1 chat · F2 saved chats · F3 settings · F4 profile · /help commands · /skills skills", ui::dim()));
         lines
     }
 
@@ -949,6 +1309,10 @@ impl App {
                     Span::styled(name.clone(), ui::bold(ui::TOOL)),
                     Span::styled(format!("  {}", ui::tool_args(arguments)), dim),
                 ])),
+                Entry::ToolResult { output, is_error } if self.show_tools => {
+                    lines.push(Line::styled(if *is_error { "  Tool error" } else { "  Tool result" }, ui::bold(ui::TOOL)));
+                    lines.extend(ui::markdown(output,"  "));
+                }
                 Entry::ToolResult { output, is_error } => {
                     let first_line = output.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                     let first: String = first_line.chars().take(160).collect();
@@ -1040,7 +1404,7 @@ impl App {
 
     fn draw_settings(&mut self, f: &mut Frame, area: Rect) {
         let ic = self.icons();
-        let [list_area, note_area] = Layout::vertical([Constraint::Min(3), Constraint::Length(4)]).areas(area);
+        let [list_area, note_area] = Layout::vertical([Constraint::Min(3), Constraint::Length(5)]).areas(area);
         let items: Vec<ListItem> = FIELDS
             .iter()
             .map(|&(key, label, restart)| {
@@ -1067,7 +1431,10 @@ impl App {
         let list = List::new(items).block(self.panel(ic.tagged("🧰", "Settings"), ui::USER)).highlight_style(Self::list_highlight()).highlight_symbol("▶ ");
         f.render_stateful_widget(list, list_area, &mut self.settings_state);
 
-        let mut lines = vec![Line::styled(format!("saved in {SETTINGS_FILE}; settings marked restart apply after the server restarts (r)"), ui::dim())];
+        let mut lines = vec![
+            Line::styled(format!("Model row: ←/→/Enter switches 0.8B / 2B. Other restart settings: r. Saved in {SETTINGS_FILE}"), ui::dim()),
+            Line::styled("Skills live in .qwen-agent/skills/; /skills lists them; /restart after AGENTS.md or skill edits.", ui::dim()),
+        ];
         if self.link == Link::Ready && self.server_settings != self.settings.server_part() {
             lines.push(Line::styled(ic.tagged("🔄", "the server runs with other settings · press r to restart it"), ui::bold(ui::TOOL)));
         }
@@ -1129,6 +1496,7 @@ impl App {
 
     fn draw_input(&self, f: &mut Frame, area: Rect) {
         let ic = self.icons();
+        let skill_hint = self.forced_skill.as_deref().map(|s| format!(" · skill {s} next"));
         let (title, text, cursor, color) = match (&self.editing, self.view) {
             (Some(buffer), View::Profile) => {
                 let index = self.profile_state.selected().unwrap_or(0).min(profile::FIELDS.len() - 1);
@@ -1139,8 +1507,18 @@ impl App {
                 let index = self.settings_state.selected().unwrap_or(0).min(FIELDS.len() - 1);
                 (ic.tagged("📝", FIELDS[index].1), buffer.as_str(), buffer.chars().count(), ui::AGENT)
             }
-            (_, View::Chat) if self.busy => (ic.tagged("⏳", "working · you can type the next message"), self.input.as_str(), self.cursor, ui::TOOL),
-            (_, View::Chat) => (ic.tagged("💬", "message"), self.input.as_str(), self.cursor, ui::USER),
+            (_, View::Chat) if self.busy => (
+                ic.tagged("⏳", &format!("working · you can type the next message{}", skill_hint.as_deref().unwrap_or(""))),
+                self.input.as_str(),
+                self.cursor,
+                ui::TOOL,
+            ),
+            (_, View::Chat) => (
+                ic.tagged("💬", &format!("message · / commands · $ skills{}", skill_hint.as_deref().unwrap_or(""))),
+                self.input.as_str(),
+                self.cursor,
+                ui::USER,
+            ),
             _ => {
                 let block = Block::bordered().border_type(BorderType::Rounded).border_style(ui::dim());
                 f.render_widget(Paragraph::new(Line::styled(" F1 or Esc: back to the chat", ui::dim())).block(block), area);
@@ -1152,7 +1530,12 @@ impl App {
             .border_style(Style::new().fg(color))
             .title(Span::styled(format!(" {title} "), ui::bold(color)));
         if text.is_empty() && self.view == View::Chat {
-            f.render_widget(Paragraph::new(Line::styled("Ask anything… (/help lists the commands)", ui::dim().add_modifier(Modifier::ITALIC))).block(block), area);
+            let placeholder = if let Some(skill) = &self.forced_skill {
+                format!("Ask anything…  skill {skill} next · type / or $ for the picker")
+            } else {
+                "Ask anything…  type / for commands or $ for skills".into()
+            };
+            f.render_widget(Paragraph::new(Line::styled(placeholder, ui::dim().add_modifier(Modifier::ITALIC))).block(block), area);
             if self.confirm.is_none() {
                 f.set_cursor_position((area.x + 1, area.y + 1));
             }
@@ -1166,6 +1549,85 @@ impl App {
         if self.confirm.is_none() {
             f.set_cursor_position((area.x + 1 + (before_width - offset) as u16, area.y + 1));
         }
+    }
+
+    /// Cursor-style command/skill picker floating above the chat input.
+    fn draw_palette(&self, f: &mut Frame, input_area: Rect) {
+        if self.palette.is_empty() || self.view != View::Chat {
+            return;
+        }
+        let ic = self.icons();
+        let visible = self.palette.len().min(8);
+        let height = (visible as u16).saturating_add(2).min(input_area.y.saturating_add(input_area.height));
+        if height < 3 || input_area.y < 2 {
+            return;
+        }
+        let width = input_area.width.min(76).max(28);
+        let y = input_area.y.saturating_sub(height);
+        let rect = Rect { x: input_area.x, y, width, height };
+        f.render_widget(Clear, rect);
+
+        let start = self.palette_index.saturating_sub(visible.saturating_sub(1).min(self.palette_index));
+        let end = (start + visible).min(self.palette.len());
+        let mut lines = Vec::with_capacity(visible);
+        for (offset, item) in self.palette[start..end].iter().enumerate() {
+            let index = start + offset;
+            let selected = index == self.palette_index;
+            let icon = if item.insert.starts_with('$')
+                || item.insert.starts_with("/skill ")
+                || item.insert.starts_with("/validate-skill ")
+            {
+                ic.pick("📦", "*")
+            } else if item.insert.starts_with("/model") {
+                ic.pick("🧠", "*")
+            } else if item.insert.starts_with("/create-skill") || item.insert.starts_with("/validate-skill") {
+                ic.pick("🛠", "*")
+            } else {
+                ic.pick("⚡", ">")
+            };
+            let desc_budget = width.saturating_sub(item.label.chars().count() as u16 + 8) as usize;
+            let desc = if item.description.chars().count() > desc_budget && desc_budget > 1 {
+                let clipped: String = item.description.chars().take(desc_budget.saturating_sub(1)).collect();
+                format!("{clipped}…")
+            } else {
+                item.description.clone()
+            };
+            let (label_style, desc_style, hint_style) = if selected {
+                (
+                    Style::new().fg(Color::Black).bg(ui::USER).add_modifier(Modifier::BOLD),
+                    Style::new().fg(Color::Black).bg(ui::USER),
+                    Style::new().fg(Color::Black).bg(ui::USER),
+                )
+            } else {
+                (Style::new().fg(Color::White), ui::dim(), ui::dim())
+            };
+            let mut spans = vec![
+                Span::styled(format!(" {icon} "), if selected { Style::new().fg(Color::Black).bg(ui::USER) } else { Style::new() }),
+                Span::styled(item.label.clone(), label_style),
+                Span::styled("  ", if selected { Style::new().bg(ui::USER) } else { Style::new() }),
+                Span::styled(desc, desc_style),
+            ];
+            if selected {
+                spans.push(Span::styled("  Enter", hint_style));
+            }
+            lines.push(Line::from(spans));
+        }
+        let title = if self.input.starts_with('$')
+            || self.input.starts_with("/skill ")
+            || self.input.starts_with("/validate-skill ")
+        {
+            ic.tagged("📦", "Skills")
+        } else if self.input.starts_with("/model ") {
+            ic.tagged("🧠", "Models")
+        } else {
+            ic.tagged("⚡", "Commands")
+        };
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(Style::new().fg(Color::Gray))
+            .title(Span::styled(format!(" {title} "), ui::bold(ui::USER)))
+            .title_bottom(Line::styled(" ↑↓ · Enter use · Esc ", ui::dim()).right_aligned());
+        f.render_widget(Paragraph::new(lines).block(block), rect);
     }
 
     fn draw_confirm(&self, f: &mut Frame) {
@@ -1194,17 +1656,24 @@ impl App {
         let block = Block::bordered()
             .border_type(BorderType::Thick)
             .border_style(Style::new().fg(ui::TOOL))
-            .title(Span::styled(format!(" {} ", ic.tagged("🔧", "Run this tool?")), ui::bold(ui::TOOL)));
-        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(block), rect);
+            .title(Span::styled(format!(" {} ", ic.tagged("🔧", "Run this tool? · PgUp/PgDn details")), ui::bold(ui::TOOL)));
+        f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).scroll((self.confirm_scroll,0)).block(block), rect);
     }
 
     fn event_loop(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        let mut last_draw = Instant::now() - Duration::from_secs(1);
         while !self.quit {
-            terminal.draw(|f| self.draw(f))?;
+            if self.dirty || (self.busy && last_draw.elapsed() >= Duration::from_millis(200)) {
+                terminal.draw(|f| self.draw(f))?; self.dirty = false; last_draw = Instant::now();
+            }
             let mut wait = Duration::from_millis(50);
+            let mut keys = 0;
             // Handle every pending key (a paste arrives as many) before drawing again.
-            while event::poll(wait)? {
-                if let TermEvent::Key(key) = event::read()? {
+            while keys < 64 && event::poll(wait)? {
+                keys += 1;
+                let event = event::read()?;
+                if matches!(event, TermEvent::Resize(..)) { self.dirty = true; }
+                if let TermEvent::Key(key) = event {
                     if key.kind == KeyEventKind::Press {
                         self.on_key(key);
                     }
@@ -1223,10 +1692,13 @@ impl App {
                 }
                 wait = Duration::ZERO;
             }
-            while let Ok(msg) = self.rx.try_recv() {
-                self.on_msg(msg);
+            for _ in 0..128 {
+                match self.rx.try_recv() { Ok(msg) => self.on_msg(msg), Err(_) => break }
             }
         }
+        self.cancel_turn();
+        self.save_session();
+        if let Some(socket) = &self.writer { let _ = socket.shutdown(std::net::Shutdown::Both); }
         Ok(())
     }
 }
@@ -1247,7 +1719,95 @@ fn open_editor(path: &Path) -> Result<()> {
 }
 
 fn field_value(settings: &Settings, key: &str) -> Value {
+    if key == "model" { return json!(settings.model_choice().to_uppercase()); }
+    if key == "thinking" { return json!(settings.thinking_mode.label().to_uppercase()); }
     serde_json::to_value(settings).ok().and_then(|v| v.get(key).cloned()).unwrap_or(Value::Null)
+}
+
+fn completion_items(input: &str, skills: &[(String, String)]) -> Vec<CompleteItem> {
+    if let Some(rest) = input.strip_prefix("/skill ") {
+        let prefix = rest.to_ascii_lowercase();
+        return skills
+            .iter()
+            .filter(|(n, _)| n.to_ascii_lowercase().starts_with(&prefix))
+            .map(|(n, d)| CompleteItem {
+                insert: format!("/skill {n}"),
+                label: n.clone(),
+                description: d.clone(),
+            })
+            .collect();
+    }
+    if let Some(rest) = input.strip_prefix("/validate-skill ") {
+        let prefix = rest.to_ascii_lowercase();
+        return skills
+            .iter()
+            .filter(|(n, _)| n.to_ascii_lowercase().starts_with(&prefix))
+            .map(|(n, d)| CompleteItem {
+                insert: format!("/validate-skill {n}"),
+                label: n.clone(),
+                description: d.clone(),
+            })
+            .collect();
+    }
+    if let Some(rest) = input.strip_prefix("/model ") {
+        let prefix = rest.to_ascii_lowercase();
+        return MODEL_ITEMS
+            .iter()
+            .filter(|(m, _)| m.starts_with(&prefix))
+            .map(|(m, d)| CompleteItem {
+                insert: format!("/model {m}"),
+                label: (*m).to_string(),
+                description: (*d).to_string(),
+            })
+            .collect();
+    }
+    if let Some(rest) = input.strip_prefix('$') {
+        if !rest.chars().any(char::is_whitespace) {
+            let prefix = rest.to_ascii_lowercase();
+            return skills
+                .iter()
+                .filter(|(n, _)| n.to_ascii_lowercase().starts_with(&prefix))
+                .map(|(n, d)| CompleteItem {
+                    insert: format!("${n}"),
+                    label: format!("${n}"),
+                    description: d.clone(),
+                })
+                .collect();
+        }
+        return Vec::new();
+    }
+    if input.starts_with('/') && !input[1..].chars().any(char::is_whitespace) {
+        let prefix = input.to_ascii_lowercase();
+        return COMMAND_ITEMS
+            .iter()
+            .filter(|(c, _)| c.starts_with(&prefix))
+            .map(|(c, d)| CompleteItem {
+                insert: (*c).to_string(),
+                label: (*c).to_string(),
+                description: (*d).to_string(),
+            })
+            .collect();
+    }
+    Vec::new()
+}
+
+fn with_completion_space(choice: &str) -> String {
+    if matches!(choice, "/skill" | "/model" | "/create-skill")
+        || (choice.starts_with('$') && !choice.contains(' '))
+    {
+        format!("{choice} ")
+    } else {
+        choice.to_string()
+    }
+}
+
+/// `/name` or `/name args` — not `/namex`.
+fn command_rest<'a>(command: &'a str, name: &str) -> Option<&'a str> {
+    if command == name {
+        Some("")
+    } else {
+        command.strip_prefix(name)?.strip_prefix(' ').map(str::trim)
+    }
 }
 
 pub fn run(settings: Settings, resume: bool) -> Result<()> {
@@ -1266,4 +1826,77 @@ pub fn run(settings: Settings, resume: bool) -> Result<()> {
         eprintln!("the server keeps the model loaded in the background; `qwen-agent stop` stops it");
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn selector_renders_and_refuses_switch_during_a_turn() {
+        let mut app=App::new(Settings::default(),false);
+        app.command("/model");
+        assert!(app.view == View::Settings);
+        assert_eq!(FIELDS[app.settings_state.selected().unwrap()].0,"model");
+        app.busy=true;
+        let before=app.settings.clone();
+        app.on_key(KeyEvent::new(KeyCode::Right,KeyModifiers::NONE));
+        assert_eq!(app.settings,before);
+        assert!(!app.restart_after_close);
+        for (w,h) in [(100,28),(30,12),(8,6)] {
+            let mut terminal=ratatui::Terminal::new(ratatui::backend::TestBackend::new(w,h)).unwrap();
+            terminal.draw(|f|app.draw(f)).unwrap();
+        }
+    }
+    #[test]
+    fn selected_model_mismatch_keeps_unsent_message() {
+        let mut app=App::new(Settings::default().select_model("2b").unwrap(),false);
+        app.link=Link::Ready;
+        app.server_settings=Settings::default().select_model("0.8b").unwrap().server_part();
+        app.input="keep this message".into();
+        app.submit();
+        assert_eq!(app.input,"keep this message");
+        assert!(!app.busy);
+    }
+    #[test]
+    fn model_selector_is_a_virtual_field_with_both_choices() {
+        let s=Settings::default();
+        assert_eq!(field_value(&s.select_model("0.8b").unwrap(),"model"),json!("0.8B"));
+        assert_eq!(field_value(&s.select_model("2b").unwrap(),"model"),json!("2B"));
+        assert_eq!(field_value(&Settings { model_dir: "custom".into(), ..s },"model"),json!("CUSTOM"));
+    }
+    #[test]
+    fn palette_lists_commands_skills_and_models() {
+        let skills = vec![("mcp-tools".into(), "calc".into()), ("notes-files".into(), "files".into())];
+        let cmds = completion_items("/sk", &skills);
+        assert_eq!(cmds.iter().map(|c| c.insert.as_str()).collect::<Vec<_>>(), vec!["/skills", "/skill"]);
+        assert!(cmds[0].description.contains("List"));
+        let skill_args = completion_items("/skill m", &skills);
+        assert_eq!(skill_args[0].insert, "/skill mcp-tools");
+        assert_eq!(skill_args[0].label, "mcp-tools");
+        let dollar = completion_items("$note", &skills);
+        assert_eq!(dollar[0].insert, "$notes-files");
+        let models = completion_items("/model ", &skills);
+        assert_eq!(models.len(), 2);
+        assert_eq!(with_completion_space("/skill"), "/skill ");
+        assert_eq!(with_completion_space("/validate-skill"), "/validate-skill");
+        assert_eq!(with_completion_space("$mcp-tools"), "$mcp-tools ");
+        assert_eq!(command_rest("/create-skill demo", "/create-skill"), Some("demo"));
+        assert_eq!(command_rest("/create-skills", "/create-skill"), None);
+
+        let mut app = App::new(Settings::default(), false);
+        app.server_skills = skills;
+        app.input = "/sk".into();
+        app.cursor = 3;
+        app.refresh_palette();
+        assert_eq!(app.palette.len(), 2);
+        app.move_palette(1);
+        assert_eq!(app.palette[app.palette_index].insert, "/skill");
+        app.accept_palette();
+        assert_eq!(app.input, "/skill ");
+        assert!(!app.palette.is_empty());
+        app.input = "/skill m".into();
+        app.cursor = app.input.chars().count();
+        app.refresh_palette();
+        assert_eq!(app.palette[0].insert, "/skill mcp-tools");
+    }
 }

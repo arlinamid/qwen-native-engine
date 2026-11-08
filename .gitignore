@@ -7,5 +7,10 @@
 .claude/settings.local.json
 /results/reference_*.json
 /.qwen-agent
+/agent/.qwen-agent
 /knowledge/*
 !/knowledge/_README.txt
+*.log
+
+__pycache__/
+*.pyc

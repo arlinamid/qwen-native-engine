@@ -10,12 +10,16 @@
 //! for one run. Every tool call needs approval unless auto-approve is on or the tool was
 //! approved with "always" earlier in the session.
 
+mod agentic;
+mod runtime;
+mod persistence;
 mod client;
 mod mcp;
 mod profile;
 mod server;
 mod session;
 mod settings;
+mod skills;
 mod store;
 mod tui;
 mod ui;
@@ -53,11 +57,12 @@ pub struct Args {
     pub settings: Settings,
     prompt: Option<String>,
     resume: bool,
+    json_output: bool,
 }
 
 fn usage() -> &'static str {
     "usage: qwen-agent [serve | stop | tui | setup] [--prompt TEXT] [--plain] [--local] [--resume]\n\
-     \x20      settings for this run: [--mcp FILE | --no-mcp] [--model-dir DIR] [--dxc PATH] [--system TEXT]\n\
+     \x20      settings for this run: [--mcp FILE | --no-mcp] [--model 0.8b|2b] [--model-dir DIR] [--kernel-tiles FILE] [--dxc PATH] [--system TEXT]\n\
      \x20      [--port N] [--yes] [--thinking] [--greedy] [--temperature T] [--presence-penalty P] [--max-steps N] [--max-tokens N]\n\
      defaults: .qwen-agent/settings.json"
 }
@@ -65,9 +70,12 @@ fn usage() -> &'static str {
 fn parse_args() -> Result<Args> {
     let mut settings = Settings::load_or_create(Path::new(SETTINGS_FILE))?;
     profile::ensure_templates()?;
+    skills::ensure_agents_md()?;
+    skills::ensure_starters()?;
     let mut mode = Mode::Auto;
     let mut prompt = None;
     let mut resume = false;
+    let mut json_output = false;
     let mut it = std::env::args().skip(1).peekable();
     let sub = match it.peek().map(String::as_str) {
         Some("serve") => Some(Mode::Serve),
@@ -85,7 +93,9 @@ fn parse_args() -> Result<Args> {
         match flag.as_str() {
             "--mcp" => settings.mcp = value()?,
             "--no-mcp" => settings.mcp = String::new(),
+            "--model" => { settings = settings.select_model(&value()?)?; settings.check_model_files()?; },
             "--model-dir" => settings.model_dir = value()?,
+            "--kernel-tiles" => settings.kernel_tiles = value()?,
             "--dxc" => settings.dxc = value()?,
             "--system" => settings.system = value()?,
             "--mcp-guide" => settings.mcp_guide = true,
@@ -96,10 +106,11 @@ fn parse_args() -> Result<Args> {
             "--max-steps" => settings.max_steps = value()?.parse()?,
             "--max-tokens" => settings.max_tokens = value()?.parse()?,
             "--yes" => settings.auto_approve = true,
-            "--thinking" => settings.thinking = true,
+            "--thinking" => settings.thinking_mode = crate::agentic::ThinkingMode::On,
             "--greedy" => settings.temperature = 0.0,
             "--prompt" => prompt = Some(value()?),
             "--resume" => resume = true,
+            "--json" => json_output = true,
             // --local is line mode too, so --plain adds nothing to it; subcommands win over both.
             "--local" => {
                 if matches!(mode, Mode::Auto | Mode::Plain) {
@@ -119,7 +130,7 @@ fn parse_args() -> Result<Args> {
         }
     }
     settings.check()?;
-    Ok(Args { mode, settings, prompt, resume })
+    Ok(Args { mode, settings, prompt, resume, json_output })
 }
 
 /// Routes tool names to MCP servers. Names that two servers share get a `server__` prefix.
@@ -129,11 +140,11 @@ pub struct McpTools {
 }
 
 impl ToolRunner for McpTools {
-    fn run(&mut self, name: &str, arguments: &Value) -> Result<(String, bool)> {
+    fn run(&mut self, name: &str, arguments: &Value, control: &runtime::TurnControl) -> Result<(String, bool)> {
         let Some((server, original)) = self.routes.get(name).cloned() else {
             return Ok((format!("unknown tool '{name}'"), true));
         };
-        self.servers[server].call_tool(&original, arguments)
+        self.servers[server].call_tool(&original, arguments, control)
     }
 }
 
@@ -143,8 +154,13 @@ fn start_mcp(path: &Path) -> Result<(McpTools, Vec<Value>)> {
     let mut servers = Vec::new();
     let mut listed = Vec::new();
     for (name, server_config) in &config.servers {
-        let mut server = mcp::Server::start(name, server_config)?;
-        let mut tools = server.list_tools()?;
+        let started = mcp::Server::start(name, server_config).and_then(|mut server| { let tools = server.list_tools()?; Ok((server, tools)) });
+        let (server, mut tools) = match started {
+            Ok(value) => value,
+            Err(e) if server_config.optional => { eprintln!("optional MCP server {name} unavailable: {e:#}"); continue; }
+            Err(e) => return Err(e),
+        };
+        tools.sort_by(|a,b| a.name.cmp(&b.name));
         if let Some(allowed) = &server_config.tools {
             tools.retain(|t| allowed.contains(&t.name));
         }
@@ -163,6 +179,8 @@ fn start_mcp(path: &Path) -> Result<(McpTools, Vec<Value>)> {
     let mut prompt_tools = Vec::new();
     for (index, tools) in listed {
         for tool in tools {
+            if let Err(e) = qwen_wasm::schema::check(&tool.input_schema) { eprintln!("MCP tool {} disabled: {e}",tool.name); continue; }
+            if tool.input_schema.get("type").and_then(Value::as_str) != Some("object") { eprintln!("MCP tool {} disabled: root schema must be an object",tool.name); continue; }
             let name = if counts[&tool.name] > 1 { format!("{}__{}", servers[index].name, tool.name) } else { tool.name.clone() };
             let mut parameters = tool.input_schema;
             // The schema URL costs prompt tokens and tells the model nothing.
@@ -170,7 +188,7 @@ fn start_mcp(path: &Path) -> Result<(McpTools, Vec<Value>)> {
                 obj.remove("$schema");
             }
             prompt_tools.push(json!({ "type": "function", "function": { "name": name, "description": tool.description, "parameters": parameters } }));
-            routes.insert(name, (index, tool.name));
+            if routes.insert(name.clone(), (index, tool.name)).is_some() { bail!("MCP tool name collision after namespacing: {name}"); }
         }
     }
     Ok((McpTools { servers, routes }, prompt_tools))
@@ -249,26 +267,44 @@ fn build_agent(settings: &Settings) -> Result<(Agent, McpTools)> {
     let weights = std::fs::read(model_dir.join("native/weights.bin")).with_context(|| format!("reading {}", model_dir.join("native/weights.bin").display()))?;
     let tokenizer = Tokenizer::from_file(model_dir.join("tokenizer.json")).map_err(|e| anyhow::anyhow!("{}: {e}", model_dir.join("tokenizer.json").display()))?;
     // The f16 kernels need DXC on D3D12; without it the f32 kernels still work.
-    let tiles = if dxc.is_some() { ModelTiles::fast() } else { ModelTiles::f32() };
+    let tiles = if !settings.kernel_tiles.is_empty() {
+        serde_json::from_str(&std::fs::read_to_string(&settings.kernel_tiles).context("reading kernel tile profile")?).context("invalid kernel tile profile")?
+    } else if dxc.is_some() { ModelTiles::fast() } else { ModelTiles::f32() };
     let model = pollster::block_on(Model::load(&index, &weights, tiles, true, dxc.as_deref()))?;
     drop(weights);
     let engine = Engine::new(model, tokenizer)?;
-    // System prompt: the configured one, the profile (who the agent and the user are), then MCP.
+    // System prompt: configured text, profile, AGENTS.md, skill catalog, then MCP.
     let mut system = settings.system.trim_end().to_string();
     let profile = profile::render();
     if !profile.is_empty() {
         system.push_str("\n\n");
         system.push_str(&profile);
     }
+    let agents = skills::render_agents_md();
+    if !agents.is_empty() {
+        system.push_str("\n\n");
+        system.push_str(&agents);
+    }
+    let skill_catalog = skills::load_catalog(Path::new(".")).unwrap_or_else(|e| {
+        eprintln!("warning: skill catalog: {e:#}");
+        Vec::new()
+    });
+    let skill_prompt = skills::catalog_prompt(&skill_catalog);
+    if !skill_prompt.is_empty() {
+        system.push_str("\n\n");
+        system.push_str(&skill_prompt);
+    }
     if let Some(guide) = mcp_guide(&runner).filter(|_| settings.mcp_guide) {
         system.push_str("\n\n");
         system.push_str(&guide);
     }
     let mut agent = Agent::new(engine, tools, system);
-    agent.thinking = settings.thinking;
+    agent.skills = skill_catalog;
+    agent.thinking_mode = settings.thinking_mode;
     agent.max_steps = settings.max_steps;
     agent.max_new_tokens = settings.max_tokens;
     agent.auto_approve = settings.auto_approve;
+    agent.turn_timeout_secs = settings.turn_timeout_secs;
     agent.sampling.temperature = settings.temperature;
     agent.sampling.presence_penalty = settings.presence_penalty;
     eprintln!("model loaded in {:.1} s; {} tools, system prompt {} tokens", t0.elapsed().as_secs_f64(), agent.tools.len(), agent.system_tokens()?);
@@ -280,8 +316,8 @@ pub fn event_json(event: Event) -> Value {
     match event {
         Event::Thinking(text) => json!({ "type": "thinking", "text": text }),
         Event::Text(text) => json!({ "type": "text", "text": text }),
-        Event::ToolCall { name, arguments } => json!({ "type": "tool_call", "name": name, "arguments": arguments }),
-        Event::ToolResult { output, is_error } => json!({ "type": "tool_result", "output": output, "is_error": is_error }),
+        Event::ToolCall { call_id, name, arguments } => json!({ "type": "tool_call", "call_id":call_id, "name": name, "arguments": arguments }),
+        Event::ToolResult { call_id, output, is_error } => json!({ "type": "tool_result", "call_id":call_id, "output": output, "is_error": is_error }),
         Event::Rejected { name, reason } => json!({ "type": "rejected", "name": name, "reason": reason }),
         Event::Stats(g) => json!({
             "type": "stats",
@@ -291,7 +327,11 @@ pub fn event_json(event: Event) -> Value {
             "prefill_ms": g.prefill_ms,
             "decode_ms": g.decode_ms,
         }),
-        Event::Done { finished } => json!({ "type": "done", "finished": finished }),
+        Event::Done { finished, stop } => json!({ "type": "done", "finished": finished, "stop": stop.as_str() }),
+        Event::Phase(phase) => json!({"type":"phase","phase":phase}),
+        Event::Context { used, limit, dropped } => json!({"type":"context","used":used,"limit":limit,"dropped_messages":dropped}),
+        Event::Checkpoint(messages) => json!({"type":"checkpoint","messages":messages}),
+        Event::Finished(status) => json!({"type":"finished","status":status}),
         Event::StepLimit => json!({ "type": "step_limit" }),
     }
 }
@@ -308,6 +348,10 @@ pub fn stats_line(event: &Value) -> String {
         n("prefill_ms") / 1000.0,
         tokens
     )
+}
+
+pub fn emit_event(event: &Value, json_output: bool) {
+    if json_output { println!("{event}"); } else { print_event(event); }
 }
 
 pub fn print_event(event: &Value) {
@@ -333,10 +377,15 @@ pub fn print_event(event: &Value) {
         "stats" => eprintln!("\n  [{}]", stats_line(event)),
         "done" => {
             if event.get("finished").and_then(Value::as_bool) == Some(false) {
-                eprintln!("  (reply cut off by the token limit)");
+                if event.get("stop").and_then(Value::as_str) == Some("max_tokens") {
+                    eprintln!("  (reply cut off by the token limit)");
+                } else {
+                    eprintln!("  (reply ended without a complete answer)");
+                }
             }
         }
         "step_limit" => eprintln!("  (stopped: tool step limit reached)"),
+        "finished" if s("status") != "completed" => eprintln!("  (turn ended: {})",s("status")),
         "error" => eprintln!("\nerror: {}", s("message")),
         _ => {}
     }
@@ -391,15 +440,17 @@ pub fn repl(mut handle: impl FnMut(&str) -> Result<()>) -> Result<()> {
 }
 
 fn run_local(args: &Args) -> Result<()> {
+    let _lease = persistence::model_lease(Path::new(".qwen-agent/model.lock"))?;
     let (mut agent, mut runner) = build_agent(&args.settings)?;
-    let mut confirm = |call: &qwen_wasm::toolcall::ToolCall| match ask_approval(&call.name, &call.arguments) {
+    let mut confirm = |_id: &str, call: &qwen_wasm::toolcall::ToolCall| match ask_approval(&call.name, &call.arguments) {
         "y" => Approval::Yes,
         "a" => Approval::Always,
         _ => Approval::No,
     };
-    let mut print = |e: Event| print_event(&event_json(e));
+    let mut print = |e: Event| emit_event(&event_json(e), args.json_output);
     if let Some(prompt) = &args.prompt {
         agent.turn(prompt, &mut runner, &mut confirm, &mut print)?;
+        if agent.last_status != "completed" { bail!("turn did not complete: {}",agent.last_status); }
         println!();
         return Ok(());
     }
@@ -452,8 +503,10 @@ fn main() -> Result<()> {
     let server_file = Path::new(SERVER_FILE);
     match args.mode {
         Mode::Serve => {
+            let lease = persistence::model_lease(Path::new(".qwen-agent/model.lock"))?;
+            let listener = server::bind(args.settings.port)?;
             let (agent, runner) = build_agent(&args.settings)?;
-            server::serve(agent, runner, &args.settings, server_file)
+            server::serve(agent, runner, &args.settings, server_file, listener, lease)
         }
         Mode::Stop => client::stop(server_file),
         Mode::Setup => profile::wizard(),
@@ -468,10 +521,7 @@ fn main() -> Result<()> {
                 eprintln!("tip: `qwen-agent serve` keeps the model loaded between runs");
                 run_local(&args)
             }
-            Err(e) => {
-                eprintln!("note: no usable server ({e:#}); loading the model here");
-                run_local(&args)
-            }
+            Err(e) => Err(e.context("could not connect to the existing server; retry or stop it before starting another model")),
         },
     }
 }

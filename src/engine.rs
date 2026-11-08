@@ -505,7 +505,7 @@ impl Engine {
             };
             let t_sample = now_ms();
             stats.mask_ms += t_sample - t_mask;
-            let token = sampler.sample(&self.logits, mask);
+            let token = sampler.try_sample(&self.logits, mask).map_err(js_err)?;
             stats.sample_ms += now_ms() - t_sample;
             if stats.new_tokens == 0 {
                 stats.ttft_ms = now_ms() - t0;
